@@ -1,0 +1,33 @@
+# Binary
+bin/
+clob-server
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Go
+*.test
+*.out
+vendor/
+coverage.txt
+coverage.html
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Generated proto (commit these; listed here to make intent explicit — remove lines below to commit)
+# proto/engine/v1/engine.pb.go
+# proto/engine/v1/engine_grpc.pb.go

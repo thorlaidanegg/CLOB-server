@@ -1,0 +1,120 @@
+version: "3.9"
+
+services:
+  redpanda:
+    image: redpandadata/redpanda:v23.3.5
+    command: >
+      redpanda start --overprovisioned --smp 1 --memory 512M
+      --reserve-memory 0M --node-id 0 --check=false
+    ports: ["9092:9092", "9644:9644"]
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: clob
+      POSTGRES_USER: clob
+      POSTGRES_PASSWORD: clob
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clob"]
+      interval: 5s
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+
+  engine:
+    build: .
+    environment:
+      ROLE: engine
+      MARKETS: BTC-USD,ETH-USD
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: redis:6379
+      ENGINE_GRPC_PORT: "50051"
+      LOG_LEVEL: info
+    ports: ["50051:50051"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: on-failure
+
+  gateway:
+    build: .
+    environment:
+      ROLE: gateway
+      ENGINE_GRPC_ADDR: engine:50051
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      REDIS_ADDR: redis:6379
+      HTTP_PORT: "8080"
+      ADMIN_BOOTSTRAP_KEY: clob_admin_devbootstrapkeylocal
+      LOG_LEVEL: info
+    ports: ["8080:8080"]
+    depends_on: [engine, redis, postgres]
+    restart: on-failure
+
+  settlement:
+    build: .
+    environment:
+      ROLE: settlement
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: on-failure
+
+  portfolio:
+    build: .
+    environment:
+      ROLE: portfolio
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: on-failure
+
+  leaderboard:
+    build: .
+    environment:
+      ROLE: leaderboard
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    restart: on-failure
+
+  feed:
+    build: .
+    environment:
+      ROLE: feed
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: info
+    depends_on:
+      redpanda: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      gateway: {condition: service_started}
+    restart: on-failure
+
+volumes:
+  pgdata:
