@@ -42,6 +42,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("engine: load markets")
 	}
 
+	// V1 restart recovery: cancel orders that were open when the engine last exited
+	// and release their reserved credits. Must run before the engine accepts new commands.
+	RecoverOpenOrders(ctx, pool, marketCfgs, log)
+
 	multi := engine.NewMultiEngine()
 	for _, mc := range marketCfgs {
 		opts := []engine.Option{
