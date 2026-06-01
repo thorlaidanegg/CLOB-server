@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/admin"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/auth"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/client"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/ratelimit"
@@ -95,7 +96,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("gateway: run migrations")
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	rdb, err := redisstore.Connect(cfg.RedisAddr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("gateway: connect redis")
+	}
 
 	// Bootstrap admin key if configured and no admin exists yet.
 	if cfg.AdminBootstrapKey != "" {

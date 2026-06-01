@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/thorlaidanegg/clob-server/internal/bus"
 	srvconfig "github.com/thorlaidanegg/clob-server/internal/shared/config"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/wallet"
 	enginev1 "github.com/thorlaidanegg/clob-server/proto/engine/v1"
 	"github.com/thorlaidanegg/clob/engine"
@@ -28,7 +28,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("engine: run migrations")
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	rdb, err := redisstore.Connect(cfg.RedisAddr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("engine: connect redis")
+	}
 
 	walletStore := wallet.NewPgStore(pool, 2)
 	orderStore := ordersstore.NewPgStore(pool)

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/redis/go-redis/v9"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/rs/zerolog"
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/engine"
@@ -103,7 +103,10 @@ func (s *Server) Start() error {
 		return fmt.Errorf("sdk: migrations: %w", err)
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: s.cfg.RedisAddr})
+	rdb, err := redisstore.Connect(s.cfg.RedisAddr)
+	if err != nil {
+		return fmt.Errorf("sdk: redis: %w", err)
+	}
 	walletStore := wallet.NewPgStore(pool, 2)
 	orderStore := ordersstore.NewPgStore(pool)
 

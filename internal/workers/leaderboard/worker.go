@@ -3,13 +3,13 @@ package leaderboard
 import (
 	"context"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob-server/internal/bus"
 	"github.com/thorlaidanegg/clob-server/internal/engineservice"
 	srvconfig "github.com/thorlaidanegg/clob-server/internal/shared/config"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/workers"
 )
 
@@ -20,7 +20,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("leaderboard: connect postgres")
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	rdb, err := redisstore.Connect(cfg.RedisAddr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("leaderboard: connect redis")
+	}
 
 	consumer, err := bus.NewKafkaConsumer(cfg.KafkaBrokers, "leaderboard")
 	if err != nil {

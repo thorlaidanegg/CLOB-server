@@ -3,12 +3,11 @@ package settlement
 import (
 	"context"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	"github.com/thorlaidanegg/clob-server/internal/bus"
 	srvconfig "github.com/thorlaidanegg/clob-server/internal/shared/config"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
-	"github.com/thorlaidanegg/clob-server/internal/bus"
 	"github.com/thorlaidanegg/clob-server/internal/workers"
 )
 
@@ -29,8 +28,6 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	defer consumer.Close()
 
 	orderStore := ordersstore.NewPgStore(pool)
-	_ = redis.NewClient(&redis.Options{Addr: cfg.RedisAddr}) // future use
-
 	handler := New(pool, orderStore, log)
 	runner := workers.NewWorkerRunner("settlement", "market-events", pool, consumer, handler, log)
 	log.Info().Msg("settlement worker starting")

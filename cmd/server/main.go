@@ -6,7 +6,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/redis/go-redis/v9"
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/engine"
 	"github.com/thorlaidanegg/clob/fees"
@@ -19,6 +18,7 @@ import (
 	"github.com/thorlaidanegg/clob-server/internal/shared/logger"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/wallet"
 	"github.com/thorlaidanegg/clob-server/internal/workers"
 	feedworker "github.com/thorlaidanegg/clob-server/internal/workers/feed"
@@ -64,7 +64,10 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 		log.Fatal().Err(err).Msg("run migrations")
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	rdb, err := redisstore.Connect(cfg.RedisAddr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("connect redis")
+	}
 
 	if cfg.AdminBootstrapKey != "" {
 		gateway.BootstrapAdminKey(ctx, pool, cfg.AdminBootstrapKey, log)

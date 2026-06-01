@@ -1,0 +1,153 @@
+version: "3.9"
+
+# Production: each role is a separate service, independently restartable and scalable.
+# Deploy with: docker compose -f docker-compose.prod.yml up -d
+# Requirements: set all *_SECRET and POSTGRES_DSN values via a .env file or secrets manager.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-clob}
+      POSTGRES_USER: ${POSTGRES_USER:-clob}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-clob}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  redpanda:
+    image: redpandadata/redpanda:v23.3.5
+    command: >
+      redpanda start --smp 1 --memory 1G
+      --reserve-memory 0M --node-id 0 --check=false
+      --advertise-kafka-addr redpanda:9092
+    volumes:
+      - rpdata:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  engine:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: engine
+      MARKETS: ${MARKETS:?MARKETS required}
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: redis:6379
+      ENGINE_GRPC_PORT: "50051"
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+      NODE_POOL_SIZE: ${NODE_POOL_SIZE:-100000}
+    ports:
+      - "127.0.0.1:50051:50051"   # internal only — not exposed to internet
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+      redis:    {condition: service_healthy}
+    restart: unless-stopped
+
+  gateway:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: gateway
+      ENGINE_GRPC_ADDR: engine:50051
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      REDIS_ADDR: redis:6379
+      HTTP_PORT: "8080"
+      RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-300}
+      RATE_LIMIT_WS_RPS: ${RATE_LIMIT_WS_RPS:-50}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+      # ADMIN_BOOTSTRAP_KEY should be unset or empty in production.
+      # Create admin keys manually via the API after first deploy.
+    ports:
+      - "8080:8080"
+    depends_on:
+      engine:   {condition: service_started}
+      redis:    {condition: service_healthy}
+      postgres: {condition: service_healthy}
+    restart: unless-stopped
+
+  settlement:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: settlement
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: unless-stopped
+
+  portfolio:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: portfolio
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: unless-stopped
+
+  leaderboard:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: leaderboard
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+      redis:    {condition: service_healthy}
+    restart: unless-stopped
+
+  feed:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: feed
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: redis:6379
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+    depends_on:
+      redpanda: {condition: service_healthy}
+      redis:    {condition: service_healthy}
+      gateway:  {condition: service_started}
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
+  rpdata:

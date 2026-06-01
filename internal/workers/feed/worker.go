@@ -3,12 +3,12 @@ package feed
 import (
 	"context"
 
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/thorlaidanegg/clob-server/internal/bus"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/ws"
 	srvconfig "github.com/thorlaidanegg/clob-server/internal/shared/config"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/workers"
 )
 
@@ -20,7 +20,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("feed: connect postgres")
 	}
 
-	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr})
+	rdb, err := redisstore.Connect(cfg.RedisAddr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("feed: connect redis")
+	}
 
 	consumer, err := bus.NewKafkaConsumer(cfg.KafkaBrokers, "feed")
 	if err != nil {
