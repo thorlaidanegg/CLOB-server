@@ -70,7 +70,7 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("engine: listen grpc")
 	}
 	grpcSrv := grpc.NewServer()
-	enginev1.RegisterEngineServiceServer(grpcSrv, NewEngineServer(multi, log))
+	enginev1.RegisterEngineServiceServer(grpcSrv, NewEngineServer(multi, marketCfgs, log))
 	log.Info().Int("port", cfg.EngineGRPCPort).Msg("engine: gRPC server starting")
 
 	go func() {

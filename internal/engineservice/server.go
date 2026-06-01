@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	clobconfig "github.com/thorlaidanegg/clob/config"
 	enginev1 "github.com/thorlaidanegg/clob-server/proto/engine/v1"
 	"github.com/thorlaidanegg/clob/engine"
 	"github.com/thorlaidanegg/clob/types"
@@ -16,35 +17,129 @@ import (
 // EngineServer implements the gRPC EngineService.
 type EngineServer struct {
 	enginev1.UnimplementedEngineServiceServer
-	multi  *engine.MultiEngine
-	logger zerolog.Logger
+	multi       *engine.MultiEngine
+	marketCfgs  map[string]clobconfig.MarketConfig // keyed by marketID string
+	logger      zerolog.Logger
 }
 
-// NewEngineServer creates a gRPC server wrapping a MultiEngine.
-func NewEngineServer(multi *engine.MultiEngine, logger zerolog.Logger) *EngineServer {
-	return &EngineServer{multi: multi, logger: logger}
+// NewEngineServer creates a gRPC EngineService server.
+// marketCfgs must include all markets the engine was created with so that price/qty
+// precision is known for correct Decimal parsing.
+func NewEngineServer(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig, logger zerolog.Logger) *EngineServer {
+	m := make(map[string]clobconfig.MarketConfig, len(cfgs))
+	for _, c := range cfgs {
+		m[string(c.MarketID)] = c
+	}
+	return &EngineServer{multi: multi, marketCfgs: m, logger: logger}
 }
 
 func (s *EngineServer) PlaceOrder(ctx context.Context, req *enginev1.PlaceOrderRequest) (*enginev1.PlaceOrderResponse, error) {
-	adapter := &directAdapterForGRPC{multi: s.multi}
-	resp, err := adapter.placeFromProto(ctx, req)
+	mc, ok := s.marketCfgs[req.MarketId]
+	if !ok {
+		return nil, status.Errorf(codes.NotFound, "market not found: %s", req.MarketId)
+	}
+
+	orderID, st, reason, err := s.placeOrder(req, mc)
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	return &enginev1.PlaceOrderResponse{
-		OrderId: resp.OrderID,
-		Status:  resp.Status,
-		Reason:  resp.Reason,
+		OrderId: orderID,
+		Status:  st,
+		Reason:  reason,
 	}, nil
 }
 
-func (s *EngineServer) CancelOrder(ctx context.Context, req *enginev1.CancelOrderRequest) (*enginev1.CancelOrderResponse, error) {
-	cmd := engine.CancelOrder{
+func (s *EngineServer) placeOrder(req *enginev1.PlaceOrderRequest, mc clobconfig.MarketConfig) (orderID, st, reason string, err error) {
+	side, err := types.SideFromString(req.Side)
+	if err != nil {
+		return "", "", "", err
+	}
+	tif, err := parseTIFStr(req.Tif)
+	if err != nil {
+		return "", "", "", err
+	}
+
+	pp := mc.PricePrecision
+	qp := mc.QtyPrecision
+
+	switch req.OrderType {
+	case "limit", "iceberg", "":
+		price, err := types.ParseDecimal(req.Price, pp)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid price %q: %w", req.Price, err)
+		}
+		qty, err := types.ParseDecimal(req.Qty, qp)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid qty %q: %w", req.Qty, err)
+		}
+		var displayQty types.Decimal
+		if req.DisplayQty != "" {
+			displayQty, err = types.ParseDecimal(req.DisplayQty, qp)
+			if err != nil {
+				return "", "", "", fmt.Errorf("invalid display_qty %q: %w", req.DisplayQty, err)
+			}
+		}
+		if err := s.multi.Submit(engine.PlaceLimitOrder{
+			MarketID: types.MarketID(req.MarketId), OrderID: types.OrderID(req.OrderId),
+			UserID: types.UserID(req.UserId), Side: side, Price: price, Qty: qty,
+			DisplayQty: displayQty, TIF: tif, ExpireAt: req.ExpireAt,
+		}); err != nil {
+			return "", "", "", err
+		}
+
+	case "market":
+		qty, err := types.ParseDecimal(req.Qty, qp)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid qty %q: %w", req.Qty, err)
+		}
+		if err := s.multi.Submit(engine.PlaceMarketOrder{
+			MarketID: types.MarketID(req.MarketId), OrderID: types.OrderID(req.OrderId),
+			UserID: types.UserID(req.UserId), Side: side, Qty: qty, TIF: tif,
+		}); err != nil {
+			return "", "", "", err
+		}
+
+	case "stop", "stop_limit":
+		stopPrice, err := types.ParseDecimal(req.StopPrice, pp)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid stop_price %q: %w", req.StopPrice, err)
+		}
+		qty, err := types.ParseDecimal(req.Qty, qp)
+		if err != nil {
+			return "", "", "", fmt.Errorf("invalid qty %q: %w", req.Qty, err)
+		}
+		var limitPrice types.Decimal
+		convertTo := types.Market
+		if req.OrderType == "stop_limit" {
+			limitPrice, err = types.ParseDecimal(req.Price, pp)
+			if err != nil {
+				return "", "", "", fmt.Errorf("invalid price %q: %w", req.Price, err)
+			}
+			convertTo = types.Limit
+		}
+		if err := s.multi.Submit(engine.PlaceStopOrder{
+			MarketID: types.MarketID(req.MarketId), OrderID: types.OrderID(req.OrderId),
+			UserID: types.UserID(req.UserId), Side: side, TriggerPrice: stopPrice,
+			LimitPrice: limitPrice, Qty: qty, ConvertTo: convertTo,
+			TIF: tif, ExpireAt: req.ExpireAt,
+		}); err != nil {
+			return "", "", "", err
+		}
+
+	default:
+		return "", "", "", fmt.Errorf("unknown order_type: %s", req.OrderType)
+	}
+
+	return req.OrderId, "accepted", "", nil
+}
+
+func (s *EngineServer) CancelOrder(_ context.Context, req *enginev1.CancelOrderRequest) (*enginev1.CancelOrderResponse, error) {
+	if err := s.multi.Submit(engine.CancelOrder{
 		MarketID: types.MarketID(req.MarketId),
 		OrderID:  types.OrderID(req.OrderId),
 		UserID:   types.UserID(req.UserId),
-	}
-	if err := s.multi.Submit(cmd); err != nil {
+	}); err != nil {
 		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
 	return &enginev1.CancelOrderResponse{OrderId: req.OrderId, Status: "accepted"}, nil
@@ -115,17 +210,6 @@ func (s *EngineServer) StreamEvents(req *enginev1.StreamEventsRequest, stream en
 	}
 }
 
-// directAdapterForGRPC is a thin helper for converting proto requests to engine commands.
-type directAdapterForGRPC struct {
-	multi *engine.MultiEngine
-}
-
-func (a *directAdapterForGRPC) placeFromProto(ctx context.Context, req *enginev1.PlaceOrderRequest) (struct{ OrderID, Status, Reason string }, error) {
-	// Re-use the existing directAdapter parsing logic.
-	from := newGRPCBridge(a.multi)
-	return from.place(ctx, req)
-}
-
 func parseTIFStr(s string) (types.TIF, error) {
 	switch s {
 	case "GTC", "":
@@ -141,42 +225,4 @@ func parseTIFStr(s string) (types.TIF, error) {
 	default:
 		return 0, fmt.Errorf("unknown TIF: %s", s)
 	}
-}
-
-// newGRPCBridge creates the bridge. Defined here to avoid circular imports.
-func newGRPCBridge(multi *engine.MultiEngine) *grpcBridge { return &grpcBridge{multi: multi} }
-
-type grpcBridge struct{ multi *engine.MultiEngine }
-
-func (b *grpcBridge) place(_ context.Context, req *enginev1.PlaceOrderRequest) (struct{ OrderID, Status, Reason string }, error) {
-	side, err := types.SideFromString(req.Side)
-	if err != nil {
-		return struct{ OrderID, Status, Reason string }{}, err
-	}
-	tif, err := parseTIFStr(req.Tif)
-	if err != nil {
-		return struct{ OrderID, Status, Reason string }{}, err
-	}
-
-	pp := uint8(2)
-	qp := uint8(2)
-
-	switch req.OrderType {
-	case "limit", "iceberg", "":
-		price, _ := types.ParseDecimal(req.Price, pp)
-		qty, _ := types.ParseDecimal(req.Qty, qp)
-		b.multi.Submit(engine.PlaceLimitOrder{
-			MarketID: types.MarketID(req.MarketId),
-			OrderID:  types.OrderID(req.OrderId),
-			UserID:   types.UserID(req.UserId),
-			Side: side, Price: price, Qty: qty, TIF: tif, ExpireAt: req.ExpireAt,
-		})
-	case "market":
-		qty, _ := types.ParseDecimal(req.Qty, qp)
-		b.multi.Submit(engine.PlaceMarketOrder{
-			MarketID: types.MarketID(req.MarketId), OrderID: types.OrderID(req.OrderId),
-			UserID: types.UserID(req.UserId), Side: side, Qty: qty, TIF: tif,
-		})
-	}
-	return struct{ OrderID, Status, Reason string }{req.OrderId, "accepted", ""}, nil
 }
