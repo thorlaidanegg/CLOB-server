@@ -3,15 +3,16 @@ package ws
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/auth"
+	"github.com/thorlaidanegg/clob-server/internal/gateway/normalizer"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/client"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/ratelimit"
+	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 )
 
@@ -149,34 +150,13 @@ func (c *Client) handleAuth(ctx context.Context, apiKey string) {
 }
 
 func (c *Client) handlePlaceOrder(ctx context.Context, msg wsMsg) {
-	if msg.MarketID == "" || msg.Side == "" || msg.Qty == "" {
-		c.sendJSON(map[string]string{"type": "error", "message": "marketID, side and qty are required"})
-		return
-	}
-	if msg.OrderType == "" {
-		msg.OrderType = "limit"
-	}
-
-	orderID := fmt.Sprintf("ord_%d", time.Now().UnixNano())
-
-	// Insert into Postgres before submitting to engine (same as REST handler).
-	pgRow := ordersstore.OrderRow{
-		OrderID:   orderID,
-		UserID:    c.userID,
-		MarketID:  msg.MarketID,
-		Side:      msg.Side,
-		OrderType: msg.OrderType,
-		Status:    "new",
-		TIF:       msg.TIF,
-	}
-	if err := c.orderStore.InsertOrder(ctx, pgRow); err != nil {
-		c.sendJSON(map[string]string{"type": "error", "message": "failed to record order"})
+	mkt, err := pgstore.GetMarket(ctx, c.pg, msg.MarketID)
+	if err != nil {
+		c.sendJSON(map[string]string{"type": "error", "message": "market not found: " + msg.MarketID})
 		return
 	}
 
-	resp, err := c.engine.PlaceOrder(ctx, client.PlaceOrderRequest{
-		OrderID:    orderID,
-		UserID:     c.userID,
+	built, err := normalizer.BuildPlaceRequest(c.userID, normalizer.OrderParams{
 		MarketID:   msg.MarketID,
 		Side:       msg.Side,
 		OrderType:  msg.OrderType,
@@ -185,8 +165,20 @@ func (c *Client) handlePlaceOrder(ctx context.Context, msg wsMsg) {
 		Qty:        msg.Qty,
 		DisplayQty: msg.DisplayQty,
 		TIF:        msg.TIF,
+		ExpireAt:   msg.ExpireAt,
 		STPMode:    msg.STPMode,
-	})
+	}, mkt)
+	if err != nil {
+		c.sendJSON(map[string]string{"type": "error", "message": err.Error()})
+		return
+	}
+
+	if err := c.orderStore.InsertOrder(ctx, built.OrderRow); err != nil {
+		c.sendJSON(map[string]string{"type": "error", "message": "failed to record order"})
+		return
+	}
+
+	resp, err := c.engine.PlaceOrder(ctx, built.EngineReq)
 	if err != nil {
 		c.sendJSON(map[string]string{"type": "error", "message": err.Error()})
 		return

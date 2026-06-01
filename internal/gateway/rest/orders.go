@@ -2,31 +2,17 @@ package rest
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/auth"
+	"github.com/thorlaidanegg/clob-server/internal/gateway/normalizer"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/client"
 	"github.com/thorlaidanegg/clob-server/internal/shared/apierrors"
-	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
-	"github.com/jackc/pgx/v5/pgxpool"
+	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 )
-
-type placeOrderReq struct {
-	MarketID   string `json:"marketID"`
-	Side       string `json:"side"`
-	OrderType  string `json:"orderType"`
-	Price      string `json:"price"`
-	StopPrice  string `json:"stopPrice"`
-	Qty        string `json:"qty"`
-	DisplayQty string `json:"displayQty"`
-	TIF        string `json:"tif"`
-	ExpireAt   string `json:"expireAt"` // RFC3339
-	STPMode    string `json:"stpMode"`
-}
 
 // PlaceOrder handles POST /v1/orders
 func PlaceOrder(pool *pgxpool.Pool, orderStore ordersstore.Store, eng client.EngineAdapter) http.HandlerFunc {
@@ -37,52 +23,30 @@ func PlaceOrder(pool *pgxpool.Pool, orderStore ordersstore.Store, eng client.Eng
 			return
 		}
 
-		var req placeOrderReq
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var params normalizer.OrderParams
+		if err := json.NewDecoder(r.Body).Decode(&params); err != nil {
 			apierrors.WriteErrorMsg(w, http.StatusBadRequest, "invalid request body")
 			return
 		}
 
-		orderID := fmt.Sprintf("ord_%d", time.Now().UnixNano())
-		var expireAt int64
-		if req.ExpireAt != "" {
-			t, err := time.Parse(time.RFC3339, req.ExpireAt)
-			if err != nil {
-				apierrors.WriteErrorMsg(w, http.StatusBadRequest, "invalid expireAt")
-				return
-			}
-			expireAt = t.UnixNano()
+		mkt, err := pgstore.GetMarket(r.Context(), pool, params.MarketID)
+		if err != nil {
+			apierrors.WriteError(w, apierrors.ErrMarketNotFound)
+			return
 		}
 
-		// Insert order record before submitting to engine.
-		pgReq := ordersstore.OrderRow{
-			OrderID:   orderID,
-			UserID:    ac.UserID,
-			MarketID:  req.MarketID,
-			Side:      req.Side,
-			OrderType: req.OrderType,
-			Status:    "new",
-			TIF:       req.TIF,
+		built, err := normalizer.BuildPlaceRequest(ac.UserID, params, mkt)
+		if err != nil {
+			apierrors.WriteErrorMsg(w, http.StatusBadRequest, err.Error())
+			return
 		}
-		if err := orderStore.InsertOrder(r.Context(), pgReq); err != nil {
+
+		if err := orderStore.InsertOrder(r.Context(), built.OrderRow); err != nil {
 			apierrors.WriteError(w, err)
 			return
 		}
 
-		resp, err := eng.PlaceOrder(r.Context(), client.PlaceOrderRequest{
-			OrderID:    orderID,
-			UserID:     ac.UserID,
-			MarketID:   req.MarketID,
-			Side:       req.Side,
-			OrderType:  req.OrderType,
-			Price:      req.Price,
-			StopPrice:  req.StopPrice,
-			Qty:        req.Qty,
-			DisplayQty: req.DisplayQty,
-			TIF:        req.TIF,
-			ExpireAt:   expireAt,
-			STPMode:    req.STPMode,
-		})
+		resp, err := eng.PlaceOrder(r.Context(), built.EngineReq)
 		if err != nil {
 			apierrors.WriteError(w, err)
 			return
