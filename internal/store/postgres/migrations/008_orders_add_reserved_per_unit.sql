@@ -1,0 +1,1 @@
+ALTER TABLE orders ADD COLUMN reserved_per_unit BIGINT NOT NULL DEFAULT 0;

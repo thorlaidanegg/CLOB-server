@@ -1,0 +1,114 @@
+package postgres
+
+import (
+	"context"
+	"errors"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+)
+
+// MarketRow mirrors the markets table.
+type MarketRow struct {
+	MarketID       string
+	BaseAsset      string
+	QuoteAsset     string
+	PricePrecision uint8
+	QtyPrecision   uint8
+	TickSize       int64
+	LotSize        int64
+	MinOrderQty    int64
+	MaxOrderQty    int64
+	MaxOrderValue  int64
+	MaxDepth       int
+	Features       int
+	STPMode        string
+	MakerFeeRate   int64
+	TakerFeeRate   int64
+	FeeCurrency    string
+	FeeModel       string
+	State          string
+	CreatedBy      string
+}
+
+// GetMarket fetches a market row by ID.
+func GetMarket(ctx context.Context, pool *pgxpool.Pool, marketID string) (MarketRow, error) {
+	var m MarketRow
+	err := pool.QueryRow(ctx,
+		`SELECT market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),
+		        price_precision, qty_precision, tick_size, lot_size,
+		        COALESCE(min_order_qty,0), COALESCE(max_order_qty,0), COALESCE(max_order_value,0),
+		        COALESCE(max_depth,0), features, COALESCE(stp_mode,''),
+		        maker_fee_rate, taker_fee_rate, COALESCE(fee_currency,''),
+		        fee_model, state, COALESCE(created_by,'')
+		 FROM markets WHERE market_id=$1`,
+		marketID,
+	).Scan(&m.MarketID, &m.BaseAsset, &m.QuoteAsset,
+		&m.PricePrecision, &m.QtyPrecision, &m.TickSize, &m.LotSize,
+		&m.MinOrderQty, &m.MaxOrderQty, &m.MaxOrderValue,
+		&m.MaxDepth, &m.Features, &m.STPMode,
+		&m.MakerFeeRate, &m.TakerFeeRate, &m.FeeCurrency,
+		&m.FeeModel, &m.State, &m.CreatedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return MarketRow{}, errors.New("market not found: " + marketID)
+	}
+	return m, err
+}
+
+// ListMarkets returns all markets.
+func ListMarkets(ctx context.Context, pool *pgxpool.Pool) ([]MarketRow, error) {
+	rows, err := pool.Query(ctx,
+		`SELECT market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),
+		        price_precision, qty_precision, tick_size, lot_size,
+		        COALESCE(min_order_qty,0), COALESCE(max_order_qty,0), COALESCE(max_order_value,0),
+		        COALESCE(max_depth,0), features, COALESCE(stp_mode,''),
+		        maker_fee_rate, taker_fee_rate, COALESCE(fee_currency,''),
+		        fee_model, state, COALESCE(created_by,'')
+		 FROM markets ORDER BY market_id`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var result []MarketRow
+	for rows.Next() {
+		var m MarketRow
+		if err := rows.Scan(&m.MarketID, &m.BaseAsset, &m.QuoteAsset,
+			&m.PricePrecision, &m.QtyPrecision, &m.TickSize, &m.LotSize,
+			&m.MinOrderQty, &m.MaxOrderQty, &m.MaxOrderValue,
+			&m.MaxDepth, &m.Features, &m.STPMode,
+			&m.MakerFeeRate, &m.TakerFeeRate, &m.FeeCurrency,
+			&m.FeeModel, &m.State, &m.CreatedBy); err != nil {
+			return nil, err
+		}
+		result = append(result, m)
+	}
+	return result, rows.Err()
+}
+
+// InsertMarket inserts a new market row.
+func InsertMarket(ctx context.Context, pool *pgxpool.Pool, m MarketRow) error {
+	_, err := pool.Exec(ctx,
+		`INSERT INTO markets
+		 (market_id, base_asset, quote_asset, price_precision, qty_precision,
+		  tick_size, lot_size, min_order_qty, max_order_qty, max_order_value,
+		  max_depth, features, stp_mode, maker_fee_rate, taker_fee_rate,
+		  fee_currency, fee_model, state, created_by)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+		m.MarketID, m.BaseAsset, m.QuoteAsset, m.PricePrecision, m.QtyPrecision,
+		m.TickSize, m.LotSize, m.MinOrderQty, m.MaxOrderQty, m.MaxOrderValue,
+		m.MaxDepth, m.Features, m.STPMode, m.MakerFeeRate, m.TakerFeeRate,
+		m.FeeCurrency, m.FeeModel, m.State, m.CreatedBy,
+	)
+	return err
+}
+
+// UpdateMarketState updates the market's state field.
+func UpdateMarketState(ctx context.Context, pool *pgxpool.Pool, marketID, state string) error {
+	_, err := pool.Exec(ctx,
+		`UPDATE markets SET state=$2, updated_at=now() WHERE market_id=$1`,
+		marketID, state,
+	)
+	return err
+}

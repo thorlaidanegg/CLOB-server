@@ -1,0 +1,106 @@
+package auth
+
+import (
+	"context"
+	"net/http"
+	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
+	"github.com/thorlaidanegg/clob-server/internal/shared/apierrors"
+	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
+	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
+)
+
+type contextKey struct{}
+
+// ValidateKey looks up an API key, checking Redis cache then Postgres.
+func ValidateKey(ctx context.Context, key string, pg *pgxpool.Pool, rdb *redis.Client) (AuthContext, error) {
+	hash := HashKey(key)
+
+	// 1. Redis cache hit
+	if cached, ok, _ := redisstore.GetAPIKey(ctx, rdb, hash); ok {
+		return AuthContext{
+			UserID:    cached.UserID,
+			Scopes:    cached.Scopes,
+			Tier:      cached.Tier,
+			RateLimit: cached.RateLimit,
+		}, nil
+	}
+
+	// 2. Postgres lookup
+	row, err := pgstore.GetAPIKeyByHash(ctx, pg, hash)
+	if err != nil {
+		return AuthContext{}, apierrors.ErrInvalidKey
+	}
+	if row.Revoked {
+		return AuthContext{}, apierrors.ErrKeyRevoked
+	}
+	if row.ExpiresAt != nil && row.ExpiresAt.Before(time.Now()) {
+		return AuthContext{}, apierrors.ErrKeyExpired
+	}
+
+	ac := AuthContext{
+		UserID:    row.UserID,
+		Scopes:    row.Scopes,
+		Tier:      row.Tier,
+		RateLimit: row.RateLimit,
+	}
+
+	// 3. Cache for 60 seconds
+	redisstore.SetAPIKey(ctx, rdb, hash, redisstore.AuthCacheData{
+		UserID:    ac.UserID,
+		Scopes:    ac.Scopes,
+		Tier:      ac.Tier,
+		RateLimit: ac.RateLimit,
+	}, 60*time.Second)
+
+	// 4. Update last_used_at asynchronously
+	go pgstore.UpdateLastUsed(context.Background(), pg, hash)
+
+	return ac, nil
+}
+
+// Middleware extracts and validates the Bearer token from each request.
+func Middleware(pg *pgxpool.Pool, rdb *redis.Client) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			authHeader := r.Header.Get("Authorization")
+			key := strings.TrimPrefix(authHeader, "Bearer ")
+			if key == "" || key == authHeader {
+				apierrors.WriteError(w, apierrors.ErrUnauthorized)
+				return
+			}
+
+			ac, err := ValidateKey(r.Context(), key, pg, rdb)
+			if err != nil {
+				apierrors.WriteError(w, err)
+				return
+			}
+
+			ctx := context.WithValue(r.Context(), contextKey{}, ac)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+// RequireScope returns a middleware that enforces a specific scope.
+func RequireScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			ac, ok := r.Context().Value(contextKey{}).(AuthContext)
+			if !ok || !ac.HasScope(scope) {
+				apierrors.WriteError(w, apierrors.ErrForbidden)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// FromContext extracts AuthContext from request context.
+func FromContext(ctx context.Context) (AuthContext, bool) {
+	ac, ok := ctx.Value(contextKey{}).(AuthContext)
+	return ac, ok
+}

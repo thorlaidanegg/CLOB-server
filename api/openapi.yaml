@@ -1,0 +1,325 @@
+openapi: "3.0.3"
+info:
+  title: CLOB Server API
+  version: "1.0.0"
+  description: Central Limit Order Book trading platform REST API
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: clob_live_...
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+    Order:
+      type: object
+      properties:
+        orderID:    { type: string }
+        userID:     { type: string }
+        marketID:   { type: string }
+        side:       { type: string, enum: [bid, ask] }
+        orderType:  { type: string, enum: [limit, market, stop, stop_limit] }
+        price:      { type: string, description: "decimal string" }
+        qty:        { type: string, description: "decimal string" }
+        status:     { type: string }
+        tif:        { type: string, enum: [GTC, IOC, FOK, GTD, DAY] }
+        createdAt:  { type: string, format: date-time }
+
+    PlaceOrderRequest:
+      type: object
+      required: [marketID, side, orderType, qty]
+      properties:
+        marketID:   { type: string }
+        side:       { type: string, enum: [bid, ask] }
+        orderType:  { type: string, enum: [limit, market, stop, stop_limit] }
+        price:      { type: string }
+        stopPrice:  { type: string }
+        qty:        { type: string }
+        displayQty: { type: string }
+        tif:        { type: string, enum: [GTC, IOC, FOK, GTD, DAY], default: GTC }
+        expireAt:   { type: string, format: date-time, description: "GTD only" }
+        stpMode:    { type: string }
+
+    PlaceOrderResponse:
+      type: object
+      properties:
+        orderID: { type: string }
+        seqNum:  { type: integer }
+        status:  { type: string }
+        reason:  { type: string }
+
+    DepthLevel:
+      type: object
+      properties:
+        price:      { type: string }
+        totalQty:   { type: string }
+        displayQty: { type: string }
+        orderCount: { type: integer }
+
+    BookSnapshot:
+      type: object
+      properties:
+        bids: { type: array, items: { $ref: '#/components/schemas/DepthLevel' } }
+        asks: { type: array, items: { $ref: '#/components/schemas/DepthLevel' } }
+
+    Position:
+      type: object
+      properties:
+        marketID:      { type: string }
+        quantity:      { type: string }
+        avgEntryPrice: { type: string }
+        realisedPnl:   { type: string }
+        unrealisedPnl: { type: string }
+        lastPrice:     { type: string }
+
+    Portfolio:
+      type: object
+      properties:
+        walletAvailable: { type: string }
+        walletReserved:  { type: string }
+        positions:       { type: array, items: { $ref: '#/components/schemas/Position' } }
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        userID: { type: string }
+        email:  { type: string }
+        score:  { type: number }
+        rank:   { type: integer }
+
+    APIKey:
+      type: object
+      properties:
+        id:         { type: string }
+        keyPrefix:  { type: string }
+        name:       { type: string }
+        scopes:     { type: array, items: { type: string } }
+        tier:       { type: string }
+        rateLimit:  { type: integer }
+        expiresAt:  { type: string, format: date-time }
+        revoked:    { type: boolean }
+        createdAt:  { type: string, format: date-time }
+
+    Market:
+      type: object
+      properties:
+        marketID:       { type: string }
+        baseAsset:      { type: string }
+        quoteAsset:     { type: string }
+        pricePrecision: { type: integer }
+        qtyPrecision:   { type: integer }
+        state:          { type: string, enum: [open, halted] }
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string }
+
+  /v1/orders:
+    post:
+      summary: Place an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceOrderRequest' }
+      responses:
+        "202": { description: Accepted, content: { application/json: { schema: { $ref: '#/components/schemas/PlaceOrderResponse' } } } }
+        "400": { description: Bad request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        "401": { description: Unauthorized }
+        "402": { description: Insufficient credits }
+    get:
+      summary: List open orders
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Order' } } } } }
+
+  /v1/orders/{id}:
+    get:
+      summary: Get order by ID
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
+        "404": { description: Not found }
+    delete:
+      summary: Cancel an order
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "202": { description: Cancel accepted }
+        "404": { description: Not found }
+
+  /v1/markets:
+    get:
+      summary: List all markets
+      security: []
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Market' } } } } }
+
+  /v1/markets/{id}/depth:
+    get:
+      summary: Get order book depth
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: levels
+          schema: { type: integer, default: 20 }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/BookSnapshot' } } } }
+        "404": { description: Market not found }
+
+  /v1/portfolio:
+    get:
+      summary: Get portfolio and wallet
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Portfolio' } } } }
+
+  /v1/leaderboard:
+    get:
+      summary: Get top traders by realised PnL
+      security: []
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50 }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LeaderboardEntry' } } } } }
+
+  /v1/apikeys:
+    post:
+      summary: Generate a new API key
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+      responses:
+        "201":
+          description: Created — full key returned ONCE, store it now
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fullKey:   { type: string }
+                  keyPrefix: { type: string }
+    get:
+      summary: List API keys (hashes scrubbed)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/APIKey' } } } } }
+
+  /v1/apikeys/{id}:
+    delete:
+      summary: Revoke an API key
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Revoked }
+
+  /v1/stream:
+    get:
+      summary: WebSocket stream (upgrade required)
+      description: |
+        Upgrade to WebSocket. Send `{"type":"auth","apiKey":"clob_live_..."}` within 10 seconds.
+        Then subscribe: `{"type":"subscribe","channel":"depth:BTC-USD"}`.
+
+        Channels: depth:{marketID}, trades:{marketID}, orders:{userID}, portfolio:{userID}, markets
+      responses:
+        "101": { description: Switching Protocols }
+
+  /v1/admin/markets:
+    post:
+      summary: Create a market
+      responses:
+        "201": { description: Created }
+
+  /v1/admin/markets/{id}/halt:
+    patch:
+      summary: Halt a market
+      parameters:
+        - in: path; name: id; required: true; schema: { type: string }
+      responses:
+        "204": { description: OK }
+
+  /v1/admin/markets/{id}/resume:
+    patch:
+      summary: Resume a halted market
+      parameters:
+        - in: path; name: id; required: true; schema: { type: string }
+      responses:
+        "204": { description: OK }
+
+  /v1/admin/users:
+    post:
+      summary: Create a user
+      responses:
+        "201": { description: Created }
+
+  /v1/admin/users/{id}/credits:
+    post:
+      summary: Grant credits to a user
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amount]
+              properties:
+                amount: { type: string, description: "decimal string e.g. '1000.00'" }
+      responses:
+        "204": { description: OK }
+
+  /v1/admin/orders/{id}:
+    delete:
+      summary: Force-cancel any order (admin)
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        "204": { description: Canceled }
+        "404": { description: Not found }

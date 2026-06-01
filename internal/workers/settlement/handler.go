@@ -1,0 +1,193 @@
+package settlement
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
+	"github.com/thorlaidanegg/clob-server/internal/workers"
+	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
+	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
+	"github.com/thorlaidanegg/clob/events"
+	"github.com/thorlaidanegg/clob/types"
+)
+
+// Handler processes settlement events.
+type Handler struct {
+	pool       *pgxpool.Pool
+	orderStore ordersstore.Store
+	logger     zerolog.Logger
+}
+
+// New creates a settlement Handler.
+func New(pool *pgxpool.Pool, orderStore ordersstore.Store, logger zerolog.Logger) *Handler {
+	return &Handler{pool: pool, orderStore: orderStore, logger: logger}
+}
+
+// HandleEvent dispatches to the correct handler by event type.
+func (h *Handler) HandleEvent(ctx context.Context, tx pgx.Tx, env workers.EventEnvelope) error {
+	switch env.EventType {
+	case events.TypeTradeFill:
+		fill, ok := env.Event.(*events.TradeFill)
+		if !ok {
+			return nil
+		}
+		return h.handleTradeFill(ctx, tx, fill)
+	case events.TypeOrderCanceled:
+		ev, ok := env.Event.(*events.OrderCanceled)
+		if !ok {
+			return nil
+		}
+		return h.handleOrderCanceled(ctx, tx, ev)
+	case events.TypeOrderRejected:
+		ev, ok := env.Event.(*events.OrderRejected)
+		if !ok {
+			return nil
+		}
+		return h.handleOrderRejected(ctx, tx, ev)
+	}
+	return nil
+}
+
+func (h *Handler) handleTradeFill(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
+	userID := string(fill.UserID)
+
+	if fill.Role == events.RoleMaker {
+		// Maker: release reserved amount and credit net received.
+		released := fill.Price.Mul(fill.FilledQty)
+		netReceived := released.Sub(fill.Fee)
+
+		tag, err := tx.Exec(ctx,
+			`UPDATE wallets SET
+			   reserved   = reserved   - $2,
+			   available  = available  + $3,
+			   version    = version    + 1,
+			   updated_at = now()
+			 WHERE user_id=$1 AND reserved >= $2`,
+			userID, released.Value(), netReceived.Value(),
+		)
+		if err != nil {
+			return fmt.Errorf("settlement: maker wallet update: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			h.logger.Error().Str("userID", userID).Msg("settlement: maker wallet anomaly — insufficient reserved")
+		}
+		return nil
+	}
+
+	// Taker: release exact hook reservation and deduct actual cost atomically.
+	order, err := h.orderStore.GetOrder(ctx, string(fill.OrderID))
+	if err != nil {
+		return fmt.Errorf("settlement: get taker order: %w", err)
+	}
+
+	market, err := pgstore.GetMarket(ctx, h.pool, string(fill.MarketID()))
+	if err != nil {
+		return fmt.Errorf("settlement: get market: %w", err)
+	}
+
+	reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
+	reservationForFill := reservedPerUnit.Mul(fill.FilledQty)
+	cost := fill.Price.Mul(fill.FilledQty).Add(fill.Fee)
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets SET
+		   reserved  = reserved  - $2,
+		   available = available + $2 - $3,
+		   version   = version   + 1,
+		   updated_at = now()
+		 WHERE user_id=$1 AND reserved >= $2`,
+		userID, reservationForFill.Value(), cost.Value(),
+	)
+	if err != nil {
+		return fmt.Errorf("settlement: taker wallet update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		h.logger.Error().Str("userID", userID).Msg("settlement: taker wallet anomaly — insufficient reserved")
+	}
+	return nil
+}
+
+func (h *Handler) handleOrderCanceled(ctx context.Context, tx pgx.Tx, ev *events.OrderCanceled) error {
+	order, err := h.orderStore.GetOrder(ctx, string(ev.OrderID))
+	if err != nil {
+		return fmt.Errorf("settlement: get canceled order: %w", err)
+	}
+
+	market, err := pgstore.GetMarket(ctx, h.pool, string(ev.MarketID()))
+	if err != nil {
+		return fmt.Errorf("settlement: get market for cancel: %w", err)
+	}
+
+	qty := types.NewDecimal(order.RemainQty, market.QtyPrecision)
+	var release types.Decimal
+
+	if order.ReservedPerUnit > 0 {
+		reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
+		release = reservedPerUnit.Mul(qty)
+	} else {
+		price := types.NewDecimal(order.Price, market.PricePrecision)
+		release = price.Mul(qty)
+	}
+
+	// Release reservation and update order status within the same transaction.
+	if _, err := tx.Exec(ctx,
+		`UPDATE wallets SET
+		   reserved  = reserved  - $2,
+		   available = available + $2,
+		   version   = version   + 1,
+		   updated_at = now()
+		 WHERE user_id=$1`,
+		order.UserID, release.Value(),
+	); err != nil {
+		return fmt.Errorf("settlement: cancel wallet release: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`UPDATE orders SET status='canceled', updated_at=now() WHERE order_id=$1`,
+		order.OrderID,
+	); err != nil {
+		return fmt.Errorf("settlement: cancel order status: %w", err)
+	}
+	return nil
+}
+
+func (h *Handler) handleOrderRejected(ctx context.Context, tx pgx.Tx, ev *events.OrderRejected) error {
+	if _, err := tx.Exec(ctx,
+		`UPDATE orders SET status='rejected', updated_at=now() WHERE order_id=$1`,
+		string(ev.OrderID),
+	); err != nil {
+		return fmt.Errorf("settlement: reject order status: %w", err)
+	}
+
+	order, err := h.orderStore.GetOrder(ctx, string(ev.OrderID))
+	if err != nil {
+		// Order might not exist (e.g., engine reject before gateway insert) — non-fatal.
+		return nil
+	}
+
+	if order.ReservedPerUnit > 0 {
+		market, err := pgstore.GetMarket(ctx, h.pool, order.MarketID)
+		if err != nil {
+			return fmt.Errorf("settlement: get market for reject: %w", err)
+		}
+		reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
+		qty := types.NewDecimal(order.OrigQty, market.QtyPrecision)
+		release := reservedPerUnit.Mul(qty)
+
+		if _, err := tx.Exec(ctx,
+			`UPDATE wallets SET
+			   reserved  = reserved  - $2,
+			   available = available + $2,
+			   version   = version   + 1,
+			   updated_at = now()
+			 WHERE user_id=$1`,
+			order.UserID, release.Value(),
+		); err != nil {
+			return fmt.Errorf("settlement: reject wallet release: %w", err)
+		}
+	}
+	return nil
+}

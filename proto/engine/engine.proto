@@ -1,0 +1,73 @@
+syntax = "proto3";
+package engine.v1;
+option go_package = "github.com/thorlaidanegg/clob-server/proto/engine/v1";
+
+service EngineService {
+  rpc PlaceOrder   (PlaceOrderRequest)  returns (PlaceOrderResponse);
+  rpc CancelOrder  (CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetDepth     (GetDepthRequest)    returns (GetDepthResponse);
+  rpc GetBBO       (GetBBORequest)      returns (GetBBOResponse);
+  rpc StreamEvents (StreamEventsRequest) returns (stream EngineEvent);
+}
+
+message PlaceOrderRequest {
+  string market_id    = 1;
+  string order_id     = 2;
+  string user_id      = 3;
+  string side         = 4;
+  string order_type   = 5;
+  string price        = 6;
+  string stop_price   = 7;
+  string qty          = 8;
+  string display_qty  = 9;
+  string tif          = 10;
+  int64  expire_at    = 11;
+  repeated string flags = 12;
+  string stp_mode     = 13;
+}
+
+message PlaceOrderResponse {
+  string order_id = 1;
+  uint64 seq_num  = 2;
+  string status   = 3;
+  string reason   = 4;
+}
+
+message CancelOrderRequest {
+  string market_id = 1;
+  string order_id  = 2;
+  string user_id   = 3;
+}
+
+message CancelOrderResponse {
+  string order_id = 1;
+  string status   = 2;
+  string reason   = 3;
+}
+
+message GetDepthRequest {
+  string market_id = 1;
+  int32  levels    = 2;
+}
+
+message GetDepthResponse {
+  repeated DepthLevel bids = 1;
+  repeated DepthLevel asks = 2;
+}
+
+message DepthLevel {
+  string price        = 1;
+  string total_qty    = 2;
+  string display_qty  = 3;
+  int32  order_count  = 4;
+}
+
+message GetBBORequest  { string market_id = 1; }
+message GetBBOResponse { string bid = 1; string ask = 2; }
+
+message StreamEventsRequest { string market_id = 1; }
+message EngineEvent {
+  string event_type = 1;
+  bytes  payload    = 2;
+  uint64 seq_num    = 3;
+}
