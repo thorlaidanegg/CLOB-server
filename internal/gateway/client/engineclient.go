@@ -3,10 +3,12 @@ package client
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	enginev1 "github.com/thorlaidanegg/clob-server/proto/engine/v1"
 	"github.com/thorlaidanegg/clob/events"
+	"github.com/thorlaidanegg/clob/types"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -82,9 +84,48 @@ func (c *EngineClient) GetDepth(ctx context.Context, marketID string, levels int
 		Bids: make([]events.DepthLevel, len(resp.Bids)),
 		Asks: make([]events.DepthLevel, len(resp.Asks)),
 	}
-	// Note: string→Decimal conversion uses precision 2 as default here.
-	// A full implementation would pass market precision from the markets cache.
+	for i, b := range resp.Bids {
+		snap.Bids[i] = events.DepthLevel{
+			Price:      parseDepthDecimal(b.Price),
+			TotalQty:   parseDepthDecimal(b.TotalQty),
+			DisplayQty: parseDepthDecimal(b.DisplayQty),
+			OrderCount: int(b.OrderCount),
+		}
+	}
+	for i, a := range resp.Asks {
+		snap.Asks[i] = events.DepthLevel{
+			Price:      parseDepthDecimal(a.Price),
+			TotalQty:   parseDepthDecimal(a.TotalQty),
+			DisplayQty: parseDepthDecimal(a.DisplayQty),
+			OrderCount: int(a.OrderCount),
+		}
+	}
 	return snap, nil
+}
+
+// parseDepthDecimal converts a decimal string from the engine back into types.Decimal.
+//
+// The engine produces these strings via Decimal.String(), which always pads the
+// fractional part to exactly the value's precision. So the number of digits after
+// the decimal point equals the precision — we derive it from the string itself and
+// round-trip the value exactly, with no need to know the market's configured precision.
+func parseDepthDecimal(s string) types.Decimal {
+	if s == "" {
+		return types.Decimal{}
+	}
+	precision := 0
+	if dot := strings.IndexByte(s, '.'); dot >= 0 {
+		precision = len(s) - dot - 1
+	}
+	if precision > 18 {
+		// Beyond Decimal's supported range — shouldn't happen for engine output.
+		precision = 18
+	}
+	d, err := types.ParseDecimal(s, uint8(precision))
+	if err != nil {
+		return types.Decimal{}
+	}
+	return d
 }
 
 func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask string, err error) {

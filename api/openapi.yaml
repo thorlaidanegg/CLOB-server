@@ -2,11 +2,14 @@ openapi: "3.0.3"
 info:
   title: CLOB Server API
   version: "1.0.0"
-  description: Central Limit Order Book trading platform REST API
+  description: |
+    Central Limit Order Book trading platform.
+    All prices and quantities are **decimal strings** — never float64.
+    Authentication via `Authorization: Bearer <key>` on all non-public endpoints.
 
 servers:
   - url: http://localhost:8080
-    description: Local development
+    description: Local (ROLE=all)
 
 security:
   - BearerAuth: []
@@ -16,57 +19,91 @@ components:
     BearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: clob_live_...
+      bearerFormat: "clob_live_{base58}"
 
   schemas:
     Error:
       type: object
       properties:
         error: { type: string }
+      required: [error]
+
+    # ── Orders ──────────────────────────────────────────────────────────────
 
     Order:
       type: object
       properties:
-        orderID:    { type: string }
+        orderID:    { type: string, example: "ord_a1b2c3d4e5f6g7h8" }
         userID:     { type: string }
-        marketID:   { type: string }
+        marketID:   { type: string, example: "BTC-USD" }
         side:       { type: string, enum: [bid, ask] }
-        orderType:  { type: string, enum: [limit, market, stop, stop_limit] }
-        price:      { type: string, description: "decimal string" }
-        qty:        { type: string, description: "decimal string" }
-        status:     { type: string }
+        orderType:  { type: string, enum: [limit, market, stop, stop_limit, iceberg] }
+        price:      { type: string, description: "decimal string; 0 for market orders", example: "100.00" }
+        stopPrice:  { type: string, description: "decimal string; stop orders only" }
+        origQty:    { type: string, description: "decimal string" }
+        remainQty:  { type: string, description: "decimal string" }
+        filledQty:  { type: string, description: "decimal string" }
+        displayQty: { type: string, description: "decimal string; iceberg only" }
+        status:     { type: string, enum: [new, rested, partial, filled, canceled, rejected, expired] }
         tif:        { type: string, enum: [GTC, IOC, FOK, GTD, DAY] }
         createdAt:  { type: string, format: date-time }
+        updatedAt:  { type: string, format: date-time }
 
     PlaceOrderRequest:
       type: object
-      required: [marketID, side, orderType, qty]
+      required: [marketID, side, qty]
       properties:
-        marketID:   { type: string }
+        marketID:   { type: string, example: "BTC-USD" }
         side:       { type: string, enum: [bid, ask] }
-        orderType:  { type: string, enum: [limit, market, stop, stop_limit] }
-        price:      { type: string }
-        stopPrice:  { type: string }
-        qty:        { type: string }
-        displayQty: { type: string }
+        orderType:  { type: string, enum: [limit, market, stop, stop_limit, iceberg], default: limit }
+        price:      { type: string, description: "decimal string; required for limit/stop_limit/iceberg" }
+        stopPrice:  { type: string, description: "decimal string; required for stop/stop_limit" }
+        qty:        { type: string, example: "5.00" }
+        displayQty: { type: string, description: "decimal string; iceberg only" }
         tif:        { type: string, enum: [GTC, IOC, FOK, GTD, DAY], default: GTC }
-        expireAt:   { type: string, format: date-time, description: "GTD only" }
-        stpMode:    { type: string }
+        expireAt:   { type: string, format: date-time, description: "RFC3339; required when tif=GTD" }
+        stpMode:    { type: string, description: "self-trade prevention mode" }
 
     PlaceOrderResponse:
       type: object
       properties:
         orderID: { type: string }
-        seqNum:  { type: integer }
-        status:  { type: string }
-        reason:  { type: string }
+        seqNum:  { type: integer, format: int64 }
+        status:  { type: string, example: "accepted" }
+        reason:  { type: string, description: "populated when status=rejected" }
+
+    # ── Markets ─────────────────────────────────────────────────────────────
+
+    Market:
+      type: object
+      description: Full market configuration row.
+      properties:
+        marketID:       { type: string, example: "BTC-USD" }
+        baseAsset:      { type: string, example: "BTC" }
+        quoteAsset:     { type: string, example: "USD" }
+        pricePrecision: { type: integer, example: 2 }
+        qtyPrecision:   { type: integer, example: 8 }
+        tickSize:       { type: integer, description: "raw BIGINT at pricePrecision" }
+        lotSize:        { type: integer, description: "raw BIGINT at qtyPrecision" }
+        minOrderQty:    { type: integer }
+        maxOrderQty:    { type: integer }
+        maxOrderValue:  { type: integer }
+        maxDepth:       { type: integer }
+        features:       { type: integer, description: "feature flags bitmask" }
+        stpMode:        { type: string }
+        makerFeeRate:   { type: integer, description: "raw BIGINT at precision 4; negative = rebate" }
+        takerFeeRate:   { type: integer, description: "raw BIGINT at precision 4" }
+        feeCurrency:    { type: string }
+        feeModel:       { type: string, enum: [flat, tiered] }
+        state:          { type: string, enum: [open, halted] }
+        createdBy:      { type: string }
 
     DepthLevel:
       type: object
       properties:
-        price:      { type: string }
-        totalQty:   { type: string }
-        displayQty: { type: string }
+        price:      { type: string, description: "decimal string" }
+        totalQty:   { type: string, description: "decimal string" }
+        displayQty: { type: string, description: "decimal string" }
         orderCount: { type: integer }
 
     BookSnapshot:
@@ -75,251 +112,616 @@ components:
         bids: { type: array, items: { $ref: '#/components/schemas/DepthLevel' } }
         asks: { type: array, items: { $ref: '#/components/schemas/DepthLevel' } }
 
+    Trade:
+      type: object
+      description: A single executed trade. Prices are decimal strings at market precision.
+      properties:
+        tradeID:      { type: string }
+        marketID:     { type: string }
+        makerOrderID: { type: string }
+        takerOrderID: { type: string }
+        makerUserID:  { type: string }
+        takerUserID:  { type: string }
+        makerSide:    { type: string, enum: [bid, ask] }
+        price:        { type: string, description: "decimal string" }
+        qty:          { type: string, description: "decimal string" }
+        makerFee:     { type: string, description: "decimal string; negative = rebate" }
+        takerFee:     { type: string, description: "decimal string" }
+        feeCurrency:  { type: string }
+        createdAt:    { type: string, format: date-time }
+
+    MarketStats:
+      type: object
+      description: Live engine resource utilisation for a market.
+      properties:
+        marketID:          { type: string }
+        state:             { type: string, enum: [open, halted, pre_open, closed] }
+        orderSeq:          { type: integer, format: int64, description: "orders processed since start" }
+        eventSeq:          { type: integer, format: int64, description: "events emitted since start" }
+        openOrders:        { type: integer }
+        stopOrders:        { type: integer }
+        bidLevels:         { type: integer }
+        askLevels:         { type: integer }
+        nodePoolUsed:      { type: integer }
+        nodePoolCapacity:  { type: integer }
+        levelPoolUsed:     { type: integer }
+        levelPoolCapacity: { type: integer }
+
+    # ── Portfolio ────────────────────────────────────────────────────────────
+
     Position:
       type: object
       properties:
         marketID:      { type: string }
-        quantity:      { type: string }
-        avgEntryPrice: { type: string }
-        realisedPnl:   { type: string }
-        unrealisedPnl: { type: string }
-        lastPrice:     { type: string }
+        quantity:      { type: string, description: "decimal string; negative = short" }
+        avgEntryPrice: { type: string, description: "decimal string" }
+        realisedPnl:   { type: string, description: "decimal string" }
+        unrealisedPnl: { type: string, description: "decimal string; computed from lastPrice" }
+        lastPrice:     { type: string, description: "decimal string; last traded price from Redis" }
 
     Portfolio:
       type: object
       properties:
-        walletAvailable: { type: string }
-        walletReserved:  { type: string }
+        walletAvailable: { type: string, description: "decimal string" }
+        walletReserved:  { type: string, description: "decimal string; locked by open orders" }
         positions:       { type: array, items: { $ref: '#/components/schemas/Position' } }
+
+    # ── Leaderboard ──────────────────────────────────────────────────────────
 
     LeaderboardEntry:
       type: object
       properties:
+        rank:   { type: integer }
         userID: { type: string }
         email:  { type: string }
-        score:  { type: number }
-        rank:   { type: integer }
+        score:  { type: number, format: double, description: "realised PnL as float64 for sorting; use Postgres for exact value" }
+
+    # ── API Keys ─────────────────────────────────────────────────────────────
+
+    CreateAPIKeyRequest:
+      type: object
+      properties:
+        name: { type: string, description: "human-readable label" }
+
+    CreateAPIKeyResponse:
+      type: object
+      properties:
+        fullKey:   { type: string, description: "clob_live_... — returned ONCE, never stored server-side" }
+        keyPrefix: { type: string, description: "display prefix for UI e.g. clob_live_Ab3x..." }
 
     APIKey:
       type: object
+      description: Key record with hash scrubbed. Full key is never returned after creation.
       properties:
-        id:         { type: string }
+        id:         { type: string, format: uuid }
         keyPrefix:  { type: string }
         name:       { type: string }
         scopes:     { type: array, items: { type: string } }
-        tier:       { type: string }
-        rateLimit:  { type: integer }
-        expiresAt:  { type: string, format: date-time }
+        tier:       { type: string, enum: [standard, admin, readonly] }
+        rateLimit:  { type: integer, description: "requests per minute" }
+        lastUsedAt: { type: string, format: date-time, nullable: true }
+        expiresAt:  { type: string, format: date-time, nullable: true }
         revoked:    { type: boolean }
         createdAt:  { type: string, format: date-time }
 
-    Market:
+    # ── Admin ────────────────────────────────────────────────────────────────
+
+    CreateMarketRequest:
       type: object
+      required: [marketID, pricePrecision, qtyPrecision, tickSize, lotSize, features]
       properties:
         marketID:       { type: string }
         baseAsset:      { type: string }
         quoteAsset:     { type: string }
-        pricePrecision: { type: integer }
-        qtyPrecision:   { type: integer }
-        state:          { type: string, enum: [open, halted] }
+        pricePrecision: { type: integer, minimum: 0, maximum: 18 }
+        qtyPrecision:   { type: integer, minimum: 0, maximum: 18 }
+        tickSize:       { type: integer, description: "raw BIGINT at pricePrecision" }
+        lotSize:        { type: integer, description: "raw BIGINT at qtyPrecision" }
+        minOrderQty:    { type: integer }
+        maxOrderQty:    { type: integer }
+        maxOrderValue:  { type: integer }
+        maxDepth:       { type: integer }
+        features:       { type: integer }
+        stpMode:        { type: string }
+        makerFeeRate:   { type: integer }
+        takerFeeRate:   { type: integer }
+        feeCurrency:    { type: string }
+        feeModel:       { type: string, enum: [flat, tiered], default: flat }
+
+    CreditRequest:
+      type: object
+      required: [amount]
+      properties:
+        amount:    { type: string, description: "decimal string e.g. '1000.00'" }
+        precision: { type: integer, default: 2, description: "decimal places; defaults to 2" }
+
+    CreateUserRequest:
+      type: object
+      required: [userID, email]
+      properties:
+        userID: { type: string }
+        email:  { type: string, format: email }
 
 paths:
+
+  # ── Health ──────────────────────────────────────────────────────────────
+
   /health:
     get:
       summary: Health check
       security: []
+      tags: [System]
+      responses:
+        "200":
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: "ok" }
+
+  # ── Orders ──────────────────────────────────────────────────────────────
+
+  /v1/orders:
+    post:
+      summary: Place an order
+      description: |
+        Accepts limit, market, stop, stop-limit, and iceberg orders.
+        Returns 202 immediately; the fill arrives asynchronously via WebSocket.
+        OrderID is generated server-side — never provided by the client.
+      tags: [Orders]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PlaceOrderRequest' }
+            examples:
+              limit:
+                value: { marketID: "BTC-USD", side: "bid", orderType: "limit", price: "100.00", qty: "5.00", tif: "GTC" }
+              market:
+                value: { marketID: "BTC-USD", side: "ask", orderType: "market", qty: "2.00" }
+      responses:
+        "202":
+          description: Order accepted by engine
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlaceOrderResponse' }
+        "400":
+          description: Validation error (invalid side, TIF, missing price, etc.)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "401": { description: Unauthorized }
+        "402":
+          description: Insufficient credits
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        "404":
+          description: Market not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    get:
+      summary: List open orders for the authenticated user
+      tags: [Orders]
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status: { type: string }
-
-  /v1/orders:
-    post:
-      summary: Place an order
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema: { $ref: '#/components/schemas/PlaceOrderRequest' }
-      responses:
-        "202": { description: Accepted, content: { application/json: { schema: { $ref: '#/components/schemas/PlaceOrderResponse' } } } }
-        "400": { description: Bad request, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+                type: array
+                items: { $ref: '#/components/schemas/Order' }
         "401": { description: Unauthorized }
-        "402": { description: Insufficient credits }
-    get:
-      summary: List open orders
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Order' } } } } }
 
   /v1/orders/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+        description: Order ID returned by POST /v1/orders
     get:
-      summary: Get order by ID
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
+      summary: Get a single order by ID
+      tags: [Orders]
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Order' } } } }
-        "404": { description: Not found }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        "401": { description: Unauthorized }
+        "403": { description: Order belongs to another user }
+        "404": { description: Order not found }
     delete:
       summary: Cancel an order
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
+      tags: [Orders]
       responses:
-        "202": { description: Cancel accepted }
-        "404": { description: Not found }
+        "202": { description: Cancellation accepted }
+        "401": { description: Unauthorized }
+        "403": { description: Order belongs to another user }
+        "404": { description: Order not found }
+
+  # ── Markets ─────────────────────────────────────────────────────────────
 
   /v1/markets:
     get:
       summary: List all markets
+      description: Public — no authentication required.
       security: []
+      tags: [Markets]
       responses:
-        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/Market' } } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Market' }
+
+  /v1/markets/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+        example: BTC-USD
+    get:
+      summary: Get a single market by ID
+      description: Returns full market config including fee schedule and feature flags. Public.
+      security: []
+      tags: [Markets]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Market' }
+        "404":
+          description: Market not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /v1/markets/{id}/depth:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: levels
+        schema: { type: integer, default: 20, maximum: 100 }
+        description: Number of price levels to return per side
     get:
-      summary: Get order book depth
+      summary: Get order book depth snapshot
+      description: Returns top-N bid and ask levels. Public.
       security: []
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-        - in: query
-          name: levels
-          schema: { type: integer, default: 20 }
+      tags: [Markets]
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/BookSnapshot' } } } }
-        "404": { description: Market not found }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookSnapshot' }
+        "404":
+          description: Market not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /v1/markets/{id}/trades:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+      - in: query
+        name: limit
+        schema: { type: integer, default: 50, maximum: 500 }
+        description: Maximum number of trades to return, newest first
+    get:
+      summary: Get recent trade history for a market
+      description: Returns executed trades in reverse chronological order. Public.
+      security: []
+      tags: [Markets]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Trade' }
+        "404":
+          description: Market not found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  # ── Portfolio ────────────────────────────────────────────────────────────
 
   /v1/portfolio:
     get:
-      summary: Get portfolio and wallet
+      summary: Get portfolio snapshot for the authenticated user
+      description: |
+        Returns all positions with realised and unrealised PnL, plus the wallet balance.
+        Unrealised PnL is computed from the last trade price cached in Redis.
+      tags: [Portfolio]
       responses:
-        "200": { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/Portfolio' } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Portfolio' }
+        "401": { description: Unauthorized }
+
+  # ── Leaderboard ──────────────────────────────────────────────────────────
 
   /v1/leaderboard:
     get:
-      summary: Get top traders by realised PnL
+      summary: Top traders by realised PnL
+      description: Public. Updated in real-time as sell fills are processed.
       security: []
+      tags: [Leaderboard]
       parameters:
         - in: query
           name: limit
-          schema: { type: integer, default: 50 }
+          schema: { type: integer, default: 50, maximum: 100 }
       responses:
-        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LeaderboardEntry' } } } } }
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/LeaderboardEntry' }
+
+  # ── API Keys ─────────────────────────────────────────────────────────────
 
   /v1/apikeys:
     post:
       summary: Generate a new API key
+      description: |
+        The `fullKey` is returned **once** in the response and never stored server-side.
+        If lost, revoke the key and generate a new one.
+      tags: [API Keys]
       requestBody:
         content:
           application/json:
-            schema:
-              type: object
-              properties:
-                name: { type: string }
+            schema: { $ref: '#/components/schemas/CreateAPIKeyRequest' }
       responses:
         "201":
-          description: Created — full key returned ONCE, store it now
+          description: Key created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CreateAPIKeyResponse' }
+        "401": { description: Unauthorized }
+    get:
+      summary: List API keys for the authenticated user
+      description: Key hashes are scrubbed; full keys are never returned after creation.
+      tags: [API Keys]
+      responses:
+        "200":
+          description: OK
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  fullKey:   { type: string }
-                  keyPrefix: { type: string }
-    get:
-      summary: List API keys (hashes scrubbed)
-      responses:
-        "200": { description: OK, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/APIKey' } } } } }
+                type: array
+                items: { $ref: '#/components/schemas/APIKey' }
+        "401": { description: Unauthorized }
 
   /v1/apikeys/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string, format: uuid }
     delete:
       summary: Revoke an API key
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
+      tags: [API Keys]
       responses:
         "204": { description: Revoked }
+        "401": { description: Unauthorized }
+        "404": { description: Key not found or belongs to another user }
+
+  # ── WebSocket ────────────────────────────────────────────────────────────
 
   /v1/stream:
     get:
-      summary: WebSocket stream (upgrade required)
+      summary: WebSocket event stream
       description: |
-        Upgrade to WebSocket. Send `{"type":"auth","apiKey":"clob_live_..."}` within 10 seconds.
-        Then subscribe: `{"type":"subscribe","channel":"depth:BTC-USD"}`.
+        Upgrade to WebSocket. All inbound messages are JSON objects with a `type` field.
 
-        Channels: depth:{marketID}, trades:{marketID}, orders:{userID}, portfolio:{userID}, markets
+        **Auth (required within 10 seconds or connection is closed):**
+        ```json
+        { "type": "auth", "apiKey": "clob_live_..." }
+        ```
+        On success: `{"type":"auth_ok","userID":"..."}`.
+        On failure: `{"type":"auth_error","message":"..."}` then connection closed.
+
+        **Subscribe / unsubscribe:**
+        ```json
+        { "type": "subscribe",   "channel": "depth:BTC-USD" }
+        { "type": "unsubscribe", "channel": "depth:BTC-USD" }
+        ```
+
+        **Available channels:**
+        | Channel | Events |
+        |---------|--------|
+        | `depth:{marketID}` | DepthUpdate (incremental book changes) |
+        | `trades:{marketID}` | TradeExecuted (one per trade) |
+        | `orders:{userID}` | Order lifecycle (accepted, rested, canceled, rejected, filled) |
+        | `portfolio:{userID}` | TradeFill events for your orders |
+        | `markets` | MarketHalted, MarketResumed |
+
+        On successful auth the server auto-subscribes to `orders:{userID}` and `portfolio:{userID}`.
+
+        **Place an order:**
+        ```json
+        { "type": "place_order", "marketID": "BTC-USD", "side": "bid",
+          "orderType": "limit", "price": "100.00", "qty": "5.00", "tif": "GTC" }
+        ```
+        Response: `{"type":"order_accepted","orderID":"ord_...","seqNum":42}`
+
+        **Cancel an order:**
+        ```json
+        { "type": "cancel_order", "orderID": "ord_..." }
+        ```
+        Response: `{"type":"cancel_accepted","orderID":"ord_..."}`
+
+        **Rate limiting:** 50 messages/second per connection by default. Excess returns an error message; the connection is not closed.
+      security: []
+      tags: [WebSocket]
       responses:
-        "101": { description: Switching Protocols }
+        "101": { description: Switching Protocols — WebSocket handshake complete }
+        "400": { description: Upgrade required }
+
+  # ── Admin ────────────────────────────────────────────────────────────────
 
   /v1/admin/markets:
     post:
       summary: Create a market
+      description: Requires `admin:all` scope.
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateMarketRequest' }
       responses:
-        "201": { description: Created }
+        "201":
+          description: Market created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Market' }
+        "400": { description: Invalid config }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
 
   /v1/admin/markets/{id}/halt:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
     patch:
       summary: Halt a market
-      parameters:
-        - in: path; name: id; required: true; schema: { type: string }
+      description: Sets the market state to halted. Existing open orders remain; new orders are rejected.
+      tags: [Admin]
       responses:
         "204": { description: OK }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
+        "404": { description: Market not found }
 
   /v1/admin/markets/{id}/resume:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
     patch:
       summary: Resume a halted market
-      parameters:
-        - in: path; name: id; required: true; schema: { type: string }
+      tags: [Admin]
       responses:
         "204": { description: OK }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
+        "404": { description: Market not found }
+
+  /v1/admin/markets/{id}/stats:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+    get:
+      summary: Get live engine stats for a market
+      description: |
+        Returns real-time resource utilisation from the matching engine.
+        In ROLE=all the data is live; in split-role (ROLE=gateway) returns partial data
+        until gRPC GetStats RPC is implemented.
+      tags: [Admin]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MarketStats' }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
+        "404": { description: Market not found }
 
   /v1/admin/users:
     post:
-      summary: Create a user
-      responses:
-        "201": { description: Created }
-
-  /v1/admin/users/{id}/credits:
-    post:
-      summary: Grant credits to a user
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
+      summary: Create a user account
+      tags: [Admin]
       requestBody:
+        required: true
         content:
           application/json:
-            schema:
-              type: object
-              required: [amount]
-              properties:
-                amount: { type: string, description: "decimal string e.g. '1000.00'" }
+            schema: { $ref: '#/components/schemas/CreateUserRequest' }
       responses:
-        "204": { description: OK }
+        "201": { description: User created }
+        "400": { description: Missing userID or email }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
+
+  /v1/admin/users/{id}/credits:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
+        description: User ID
+    post:
+      summary: Grant virtual credits to a user
+      description: Only admins can credit wallets. Users cannot credit themselves.
+      tags: [Admin]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreditRequest' }
+      responses:
+        "204": { description: Credits granted }
+        "400": { description: Invalid amount }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
 
   /v1/admin/orders/{id}:
+    parameters:
+      - in: path
+        name: id
+        required: true
+        schema: { type: string }
     delete:
-      summary: Force-cancel any order (admin)
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
+      summary: Force-cancel any order regardless of owner
+      description: For risk management. Action is logged with the admin's userID.
+      tags: [Admin]
       responses:
-        "204": { description: Canceled }
-        "404": { description: Not found }
+        "204": { description: Order canceled }
+        "401": { description: Unauthorized }
+        "403": { description: Insufficient scope }
+        "404": { description: Order not found }
+
+tags:
+  - name: System
+    description: Health and observability
+  - name: Orders
+    description: Order placement and management
+  - name: Markets
+    description: Market data — public endpoints
+  - name: Portfolio
+    description: Positions and PnL
+  - name: Leaderboard
+    description: Realised PnL rankings
+  - name: API Keys
+    description: Key generation and revocation
+  - name: WebSocket
+    description: Real-time event stream
+  - name: Admin
+    description: Market and user management (requires admin:all scope)
