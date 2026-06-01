@@ -13,8 +13,6 @@ import (
 	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 )
 
-type contextKey struct{}
-
 // ValidateKey looks up an API key, checking Redis cache then Postgres.
 func ValidateKey(ctx context.Context, key string, pg *pgxpool.Pool, rdb *redis.Client) (AuthContext, error) {
 	hash := HashKey(key)
@@ -79,8 +77,7 @@ func Middleware(pg *pgxpool.Pool, rdb *redis.Client) func(http.Handler) http.Han
 				return
 			}
 
-			ctx := context.WithValue(r.Context(), contextKey{}, ac)
-			next.ServeHTTP(w, r.WithContext(ctx))
+			next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), ac)))
 		})
 	}
 }
@@ -89,7 +86,7 @@ func Middleware(pg *pgxpool.Pool, rdb *redis.Client) func(http.Handler) http.Han
 func RequireScope(scope string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ac, ok := r.Context().Value(contextKey{}).(AuthContext)
+			ac, ok := FromContext(r.Context())
 			if !ok || !ac.HasScope(scope) {
 				apierrors.WriteError(w, apierrors.ErrForbidden)
 				return
@@ -97,10 +94,4 @@ func RequireScope(scope string) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 		})
 	}
-}
-
-// FromContext extracts AuthContext from request context.
-func FromContext(ctx context.Context) (AuthContext, bool) {
-	ac, ok := ctx.Value(contextKey{}).(AuthContext)
-	return ac, ok
 }
