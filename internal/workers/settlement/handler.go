@@ -35,6 +35,12 @@ func (h *Handler) HandleEvent(ctx context.Context, tx pgx.Tx, env workers.EventE
 			return nil
 		}
 		return h.handleTradeFill(ctx, tx, fill)
+	case events.TypeTradeExecuted:
+		ev, ok := env.Event.(*events.TradeExecuted)
+		if !ok {
+			return nil
+		}
+		return h.handleTradeExecuted(ctx, tx, ev)
 	case events.TypeOrderCanceled:
 		ev, ok := env.Event.(*events.OrderCanceled)
 		if !ok {
@@ -49,6 +55,24 @@ func (h *Handler) HandleEvent(ctx context.Context, tx pgx.Tx, env workers.EventE
 		return h.handleOrderRejected(ctx, tx, ev)
 	}
 	return nil
+}
+
+func (h *Handler) handleTradeExecuted(ctx context.Context, tx pgx.Tx, ev *events.TradeExecuted) error {
+	return pgstore.InsertTradeTx(ctx, tx, pgstore.TradeRow{
+		TradeID:      string(ev.TradeID),
+		MarketID:     string(ev.MarketID()),
+		MakerOrderID: string(ev.MakerOrderID),
+		TakerOrderID: string(ev.TakerOrderID),
+		MakerUserID:  string(ev.MakerUserID),
+		TakerUserID:  string(ev.TakerUserID),
+		MakerSide:    ev.MakerSide.String(),
+		Price:        ev.Price.Value(),
+		Qty:          ev.Qty.Value(),
+		MakerFee:     ev.MakerFee.Value(),
+		TakerFee:     ev.TakerFee.Value(),
+		FeeCurrency:  ev.FeeCurrency,
+		SeqNum:       int64(ev.SeqNum()),
+	})
 }
 
 func (h *Handler) handleTradeFill(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {

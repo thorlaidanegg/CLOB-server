@@ -151,6 +151,27 @@ func (a *directAdapter) GetDepth(ctx context.Context, marketID string, levels in
 	return snap, err
 }
 
+func (a *directAdapter) GetStats(_ context.Context, marketID string) (MarketStats, error) {
+	st, err := a.multi.Stats(types.MarketID(marketID))
+	if err != nil {
+		return MarketStats{}, err
+	}
+	return MarketStats{
+		MarketID:          string(st.MarketID),
+		State:             st.State.String(),
+		OrderSeq:          st.OrderSeq,
+		EventSeq:          st.EventSeq,
+		OpenOrders:        st.OpenOrders,
+		StopOrders:        st.StopOrders,
+		BidLevels:         st.BidLevels,
+		AskLevels:         st.AskLevels,
+		NodePoolUsed:      st.NodePoolUsed,
+		NodePoolCapacity:  st.NodePoolCapacity,
+		LevelPoolUsed:     st.LevelPoolUsed,
+		LevelPoolCapacity: st.LevelPoolCapacity,
+	}, nil
+}
+
 func (a *directAdapter) GetBBO(_ context.Context, marketID string) (bid, ask string, err error) {
 	bidD, askD, hasBid, hasAsk, err := a.multi.BBO(types.MarketID(marketID))
 	if err != nil {

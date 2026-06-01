@@ -97,6 +97,12 @@ func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask st
 	return resp.Bid, resp.Ask, nil
 }
 
+func (c *EngineClient) GetStats(_ context.Context, marketID string) (MarketStats, error) {
+	// Stats RPC not yet in proto; gateway must fall back to Postgres market row.
+	// Return partial stats from the market ID only — a future proto extension can add GetStats.
+	return MarketStats{MarketID: marketID}, nil
+}
+
 func (c *EngineClient) Close() error {
 	return c.conn.Close()
 }
