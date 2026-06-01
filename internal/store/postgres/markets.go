@@ -2,11 +2,21 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+// FeeTierRow is one volume-based fee tier as stored in the markets.fee_tiers JSONB.
+// All values are decimal strings: MinVolume at the market's price precision,
+// rates at precision 4 (e.g. "0.0010" = 0.10%).
+type FeeTierRow struct {
+	MinVolume    string `json:"minVolume"`
+	MakerFeeRate string `json:"makerFeeRate"`
+	TakerFeeRate string `json:"takerFeeRate"`
+}
 
 // MarketRow mirrors the markets table.
 type MarketRow struct {
@@ -27,28 +37,43 @@ type MarketRow struct {
 	TakerFeeRate   int64
 	FeeCurrency    string
 	FeeModel       string
+	FeeTiers       []FeeTierRow
 	State          string
 	CreatedBy      string
 }
 
-// GetMarket fetches a market row by ID.
-func GetMarket(ctx context.Context, pool *pgxpool.Pool, marketID string) (MarketRow, error) {
+const marketCols = `market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),
+	price_precision, qty_precision, tick_size, lot_size,
+	COALESCE(min_order_qty,0), COALESCE(max_order_qty,0), COALESCE(max_order_value,0),
+	COALESCE(max_depth,0), features, COALESCE(stp_mode,''),
+	maker_fee_rate, taker_fee_rate, COALESCE(fee_currency,''),
+	fee_model, COALESCE(fee_tiers,'[]'::jsonb), state, COALESCE(created_by,'')`
+
+// scanMarket scans a row produced by a SELECT of marketCols.
+func scanMarket(row pgx.Row) (MarketRow, error) {
 	var m MarketRow
-	err := pool.QueryRow(ctx,
-		`SELECT market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),
-		        price_precision, qty_precision, tick_size, lot_size,
-		        COALESCE(min_order_qty,0), COALESCE(max_order_qty,0), COALESCE(max_order_value,0),
-		        COALESCE(max_depth,0), features, COALESCE(stp_mode,''),
-		        maker_fee_rate, taker_fee_rate, COALESCE(fee_currency,''),
-		        fee_model, state, COALESCE(created_by,'')
-		 FROM markets WHERE market_id=$1`,
-		marketID,
-	).Scan(&m.MarketID, &m.BaseAsset, &m.QuoteAsset,
+	var tiersJSON []byte
+	err := row.Scan(&m.MarketID, &m.BaseAsset, &m.QuoteAsset,
 		&m.PricePrecision, &m.QtyPrecision, &m.TickSize, &m.LotSize,
 		&m.MinOrderQty, &m.MaxOrderQty, &m.MaxOrderValue,
 		&m.MaxDepth, &m.Features, &m.STPMode,
 		&m.MakerFeeRate, &m.TakerFeeRate, &m.FeeCurrency,
-		&m.FeeModel, &m.State, &m.CreatedBy)
+		&m.FeeModel, &tiersJSON, &m.State, &m.CreatedBy)
+	if err != nil {
+		return MarketRow{}, err
+	}
+	if len(tiersJSON) > 0 {
+		if err := json.Unmarshal(tiersJSON, &m.FeeTiers); err != nil {
+			return MarketRow{}, errors.New("market " + m.MarketID + ": invalid fee_tiers JSON: " + err.Error())
+		}
+	}
+	return m, nil
+}
+
+// GetMarket fetches a market row by ID.
+func GetMarket(ctx context.Context, pool *pgxpool.Pool, marketID string) (MarketRow, error) {
+	m, err := scanMarket(pool.QueryRow(ctx,
+		`SELECT `+marketCols+` FROM markets WHERE market_id=$1`, marketID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return MarketRow{}, errors.New("market not found: " + marketID)
 	}
@@ -57,15 +82,7 @@ func GetMarket(ctx context.Context, pool *pgxpool.Pool, marketID string) (Market
 
 // ListMarkets returns all markets.
 func ListMarkets(ctx context.Context, pool *pgxpool.Pool) ([]MarketRow, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),
-		        price_precision, qty_precision, tick_size, lot_size,
-		        COALESCE(min_order_qty,0), COALESCE(max_order_qty,0), COALESCE(max_order_value,0),
-		        COALESCE(max_depth,0), features, COALESCE(stp_mode,''),
-		        maker_fee_rate, taker_fee_rate, COALESCE(fee_currency,''),
-		        fee_model, state, COALESCE(created_by,'')
-		 FROM markets ORDER BY market_id`,
-	)
+	rows, err := pool.Query(ctx, `SELECT `+marketCols+` FROM markets ORDER BY market_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -73,13 +90,8 @@ func ListMarkets(ctx context.Context, pool *pgxpool.Pool) ([]MarketRow, error) {
 
 	var result []MarketRow
 	for rows.Next() {
-		var m MarketRow
-		if err := rows.Scan(&m.MarketID, &m.BaseAsset, &m.QuoteAsset,
-			&m.PricePrecision, &m.QtyPrecision, &m.TickSize, &m.LotSize,
-			&m.MinOrderQty, &m.MaxOrderQty, &m.MaxOrderValue,
-			&m.MaxDepth, &m.Features, &m.STPMode,
-			&m.MakerFeeRate, &m.TakerFeeRate, &m.FeeCurrency,
-			&m.FeeModel, &m.State, &m.CreatedBy); err != nil {
+		m, err := scanMarket(rows)
+		if err != nil {
 			return nil, err
 		}
 		result = append(result, m)
@@ -89,17 +101,24 @@ func ListMarkets(ctx context.Context, pool *pgxpool.Pool) ([]MarketRow, error) {
 
 // InsertMarket inserts a new market row.
 func InsertMarket(ctx context.Context, pool *pgxpool.Pool, m MarketRow) error {
-	_, err := pool.Exec(ctx,
+	tiersJSON, err := json.Marshal(m.FeeTiers)
+	if err != nil {
+		return err
+	}
+	if len(m.FeeTiers) == 0 {
+		tiersJSON = []byte("[]")
+	}
+	_, err = pool.Exec(ctx,
 		`INSERT INTO markets
 		 (market_id, base_asset, quote_asset, price_precision, qty_precision,
 		  tick_size, lot_size, min_order_qty, max_order_qty, max_order_value,
 		  max_depth, features, stp_mode, maker_fee_rate, taker_fee_rate,
-		  fee_currency, fee_model, state, created_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+		  fee_currency, fee_model, fee_tiers, state, created_by)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
 		m.MarketID, m.BaseAsset, m.QuoteAsset, m.PricePrecision, m.QtyPrecision,
 		m.TickSize, m.LotSize, m.MinOrderQty, m.MaxOrderQty, m.MaxOrderValue,
 		m.MaxDepth, m.Features, m.STPMode, m.MakerFeeRate, m.TakerFeeRate,
-		m.FeeCurrency, m.FeeModel, m.State, m.CreatedBy,
+		m.FeeCurrency, m.FeeModel, tiersJSON, m.State, m.CreatedBy,
 	)
 	return err
 }

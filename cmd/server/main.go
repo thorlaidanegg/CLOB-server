@@ -5,10 +5,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/engine"
-	"github.com/thorlaidanegg/clob/fees"
 	"github.com/thorlaidanegg/clob-server/internal/bus"
 	"github.com/thorlaidanegg/clob-server/internal/engineservice"
 	"github.com/thorlaidanegg/clob-server/internal/gateway"
@@ -85,11 +85,15 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 	// V1 restart recovery: cancel open orders before accepting new commands.
 	engineservice.RecoverOpenOrders(ctx, pool, marketCfgs, log)
 
+	// Volume cache backs tiered fee markets.
+	volumeCache := engineservice.NewVolumeCache(pool, marketCfgs, log)
+	go volumeCache.Run(ctx, time.Minute)
+
 	multi := engine.NewMultiEngine()
 	for _, mc := range marketCfgs {
 		if err := multi.CreateMarket(mc,
 			engine.WithPreOrderHook(hook),
-			engine.WithFeeCalculator(fees.FlatRateFeeCalculator{}),
+			engine.WithFeeCalculator(engineservice.FeeCalculatorFor(mc, volumeCache)),
 		); err != nil {
 			log.Fatal().Err(err).Str("market", string(mc.MarketID)).Msg("create market")
 		}

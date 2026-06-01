@@ -261,6 +261,22 @@ paths:
                 properties:
                   status: { type: string, example: "ok" }
 
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      description: |
+        Prometheus exposition format. Expose only on a trusted network in production.
+        Series include `clob_http_requests_total`, `clob_http_request_duration_seconds`,
+        `clob_orders_placed_total`, `clob_worker_events_total`, and `clob_worker_event_errors_total`.
+      security: []
+      tags: [System]
+      responses:
+        "200":
+          description: Metrics in Prometheus text format
+          content:
+            text/plain:
+              schema: { type: string }
+
   # ── Orders ──────────────────────────────────────────────────────────────
 
   /v1/orders:

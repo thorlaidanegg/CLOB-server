@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"time"
 
 	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/rs/zerolog"
@@ -113,13 +114,17 @@ func (s *Server) Start() error {
 	// Default hook if none set per-market.
 	defaultHook := engineservice.NewPostgresWalletHook(walletStore, orderStore, rdb, s.log)
 
+	// Volume cache backs tiered fee markets; refreshed every minute.
+	volumeCache := engineservice.NewVolumeCache(pool, s.cfg.Markets, s.log)
+	go volumeCache.Run(ctx, time.Minute)
+
 	s.multi = engine.NewMultiEngine()
 	for _, mc := range s.cfg.Markets {
 		h := hooks.PreOrderHook(defaultHook)
 		if custom, ok := s.preHooks[string(mc.MarketID)]; ok {
 			h = custom
 		}
-		fc := fees.FeeCalculator(fees.FlatRateFeeCalculator{})
+		fc := engineservice.FeeCalculatorFor(mc, volumeCache)
 		if custom, ok := s.feeCalcs[string(mc.MarketID)]; ok {
 			fc = custom
 		}

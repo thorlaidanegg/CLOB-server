@@ -57,6 +57,15 @@ func rowToMarketConfig(r pgstore.MarketRow) (clobconfig.MarketConfig, error) {
 		},
 	}
 
+	if r.FeeModel == "tiered" {
+		tiers, err := parseFeeTiers(r.FeeTiers, pp)
+		if err != nil {
+			return clobconfig.MarketConfig{}, fmt.Errorf("market %s: %w", r.MarketID, err)
+		}
+		cfg.FeeSchedule.FeeModel = clobconfig.FeeModelTiered
+		cfg.FeeSchedule.Tiers = tiers
+	}
+
 	if r.STPMode != "" {
 		switch r.STPMode {
 		case "cancel_both":
@@ -74,4 +83,31 @@ func rowToMarketConfig(r pgstore.MarketRow) (clobconfig.MarketConfig, error) {
 		return clobconfig.MarketConfig{}, err
 	}
 	return cfg, nil
+}
+
+// parseFeeTiers converts stored tier rows into config.FeeTier values.
+// MinVolume is parsed at the market's price precision (matching the volume
+// the VolumeCache reports); rates are parsed at precision 4.
+func parseFeeTiers(rows []pgstore.FeeTierRow, pricePrecision uint8) ([]clobconfig.FeeTier, error) {
+	tiers := make([]clobconfig.FeeTier, 0, len(rows))
+	for i, r := range rows {
+		minVol, err := types.ParseDecimal(r.MinVolume, pricePrecision)
+		if err != nil {
+			return nil, fmt.Errorf("tier %d: invalid minVolume %q: %w", i, r.MinVolume, err)
+		}
+		makerRate, err := types.ParseDecimal(r.MakerFeeRate, 4)
+		if err != nil {
+			return nil, fmt.Errorf("tier %d: invalid makerFeeRate %q: %w", i, r.MakerFeeRate, err)
+		}
+		takerRate, err := types.ParseDecimal(r.TakerFeeRate, 4)
+		if err != nil {
+			return nil, fmt.Errorf("tier %d: invalid takerFeeRate %q: %w", i, r.TakerFeeRate, err)
+		}
+		tiers = append(tiers, clobconfig.FeeTier{
+			MinVolume:    minVol,
+			MakerFeeRate: makerRate,
+			TakerFeeRate: takerRate,
+		})
+	}
+	return tiers, nil
 }

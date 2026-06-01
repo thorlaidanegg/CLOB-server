@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/thorlaidanegg/clob-server/internal/bus"
@@ -14,7 +15,6 @@ import (
 	"github.com/thorlaidanegg/clob-server/internal/wallet"
 	enginev1 "github.com/thorlaidanegg/clob-server/proto/engine/v1"
 	"github.com/thorlaidanegg/clob/engine"
-	"github.com/thorlaidanegg/clob/fees"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -47,11 +47,15 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	// and release their reserved credits. Must run before the engine accepts new commands.
 	RecoverOpenOrders(ctx, pool, marketCfgs, log)
 
+	// Volume cache backs tiered fee markets; refreshed every minute from the trades table.
+	volumeCache := NewVolumeCache(pool, marketCfgs, log)
+	go volumeCache.Run(ctx, time.Minute)
+
 	multi := engine.NewMultiEngine()
 	for _, mc := range marketCfgs {
 		opts := []engine.Option{
 			engine.WithPreOrderHook(hook),
-			engine.WithFeeCalculator(fees.FlatRateFeeCalculator{}),
+			engine.WithFeeCalculator(FeeCalculatorFor(mc, volumeCache)),
 		}
 		if err := multi.CreateMarket(mc, opts...); err != nil {
 			log.Fatal().Err(err).Str("market", string(mc.MarketID)).Msg("engine: create market")
