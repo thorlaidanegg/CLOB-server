@@ -77,7 +77,7 @@ func NewRouter(deps *Deps) http.Handler {
 		})
 	})
 
-	r.Get("/v1/stream", ws.ServeWS(deps.Hub, deps.Engine, deps.PG, deps.Redis, deps.Cfg.RateLimitWSRPS))
+	r.Get("/v1/stream", ws.ServeWS(deps.Hub, deps.Engine, deps.PG, deps.Redis, deps.OrderStore, deps.Cfg.RateLimitWSRPS))
 
 	return r
 }
