@@ -13,6 +13,19 @@ import (
 	"github.com/thorlaidanegg/clob/types"
 )
 
+// GetMarkets handles GET /v1/markets
+func GetMarkets(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		markets, err := pgstore.ListMarkets(r.Context(), pool)
+		if err != nil {
+			apierrors.WriteError(w, err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(markets)
+	}
+}
+
 // GetMarket handles GET /v1/markets/:id
 func GetMarket(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +37,31 @@ func GetMarket(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(m)
+	}
+}
+
+// GetDepth handles GET /v1/markets/:id/depth
+func GetDepth(eng client.EngineAdapter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		marketID := chi.URLParam(r, "id")
+
+		levels := 20
+		if l := r.URL.Query().Get("levels"); l != "" {
+			if n, err := strconv.Atoi(l); err == nil && n > 0 {
+				if n > 100 {
+					n = 100
+				}
+				levels = n
+			}
+		}
+
+		snap, err := eng.GetDepth(r.Context(), marketID, levels)
+		if err != nil {
+			apierrors.WriteError(w, apierrors.ErrMarketNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(snap)
 	}
 }
 

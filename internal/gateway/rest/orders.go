@@ -127,29 +127,3 @@ func ListOrders(pool *pgxpool.Pool, orderStore ordersstore.Store) http.HandlerFu
 	}
 }
 
-// GetDepth handles GET /v1/markets/{id}/depth
-func GetDepth(eng client.EngineAdapter) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		marketID := chi.URLParam(r, "id")
-		snap, err := eng.GetDepth(r.Context(), marketID, 20)
-		if err != nil {
-			apierrors.WriteError(w, apierrors.ErrMarketNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(snap)
-	}
-}
-
-// GetMarkets handles GET /v1/markets
-func GetMarkets(pool *pgxpool.Pool) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		markets, err := pgstore.ListMarkets(r.Context(), pool)
-		if err != nil {
-			apierrors.WriteError(w, err)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(markets)
-	}
-}
