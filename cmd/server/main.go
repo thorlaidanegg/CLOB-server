@@ -114,7 +114,7 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 	feedHandler := feedworker.New(hub, rdb, log)
 	go workers.NewWorkerRunner("feed", "market-events", pool, inMemBus.NewConsumer(), feedHandler, log).Run(ctx)
 
-	engineAdapter := gatewayclient.NewDirectAdapter(multi, marketCfgs)
+	engineAdapter := gatewayclient.NewDirectAdapter(multi, marketCfgs, orderStore)
 	deps := &gateway.Deps{
 		PG:          pool,
 		Redis:       rdb,

@@ -4,25 +4,28 @@ import (
 	"context"
 	"fmt"
 
+	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/engine"
 	"github.com/thorlaidanegg/clob/events"
 	"github.com/thorlaidanegg/clob/types"
-	clobconfig "github.com/thorlaidanegg/clob/config"
+	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 )
 
 // directAdapter implements EngineAdapter by calling MultiEngine directly (ROLE=all).
 type directAdapter struct {
-	multi      *engine.MultiEngine
-	marketCfgs map[string]clobconfig.MarketConfig
+	multi       *engine.MultiEngine
+	marketCfgs  map[string]clobconfig.MarketConfig
+	orderStore  ordersstore.Store
 }
 
 // NewDirectAdapter creates an in-process adapter.
-func NewDirectAdapter(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig) EngineAdapter {
+// orderStore is used by CancelOrder to resolve marketID from orderID.
+func NewDirectAdapter(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig, orderStore ordersstore.Store) EngineAdapter {
 	m := make(map[string]clobconfig.MarketConfig, len(cfgs))
 	for _, c := range cfgs {
 		m[string(c.MarketID)] = c
 	}
-	return &directAdapter{multi: multi, marketCfgs: m}
+	return &directAdapter{multi: multi, marketCfgs: m, orderStore: orderStore}
 }
 
 func (a *directAdapter) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (PlaceOrderResponse, error) {
@@ -132,10 +135,15 @@ func (a *directAdapter) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (
 }
 
 func (a *directAdapter) CancelOrder(ctx context.Context, orderID, userID string) error {
-	// We need the marketID — look it up from active orders. For direct adapter we
-	// broadcast a cancel to all markets and let the engine handle "not found".
-	// A production implementation would look up the marketID from the orders store.
-	return fmt.Errorf("cancel requires marketID: use orders store to resolve")
+	order, err := a.orderStore.GetOrder(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("cancel: order not found: %s", orderID)
+	}
+	return a.multi.Submit(engine.CancelOrder{
+		MarketID: types.MarketID(order.MarketID),
+		OrderID:  types.OrderID(orderID),
+		UserID:   types.UserID(userID),
+	})
 }
 
 func (a *directAdapter) GetDepth(ctx context.Context, marketID string, levels int) (events.BookSnapshot, error) {

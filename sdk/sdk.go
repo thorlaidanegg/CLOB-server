@@ -155,7 +155,7 @@ func (s *Server) Start() error {
 	feedHandler := feedworker.New(s.hub, rdb, s.log)
 	go workers.NewWorkerRunner("feed", "market-events", pool, s.inMemBus.NewConsumer(), feedHandler, s.log).Run(ctx)
 
-	engineAdapter := gatewayclient.NewDirectAdapter(s.multi, s.cfg.Markets)
+	engineAdapter := gatewayclient.NewDirectAdapter(s.multi, s.cfg.Markets, orderStore)
 	deps := &gateway.Deps{
 		PG:          pool,
 		Redis:       rdb,
