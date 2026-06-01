@@ -11,6 +11,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/admin"
+	"github.com/thorlaidanegg/clob-server/internal/shared/metrics"
 	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/auth"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/client"
@@ -43,10 +44,17 @@ func NewRouter(deps *Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RequestID)
+	r.Use(metrics.Middleware)
+	if len(deps.Cfg.CORSAllowedOrigins) > 0 {
+		r.Use(corsMiddleware(deps.Cfg.CORSAllowedOrigins))
+	}
 
 	r.Get("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Prometheus scrape endpoint. Expose only on a trusted network in production.
+	r.Handle("/metrics", metrics.Handler())
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(auth.Middleware(deps.PG, deps.Redis))

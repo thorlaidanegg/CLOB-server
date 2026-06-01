@@ -7,9 +7,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/auth"
-	"github.com/thorlaidanegg/clob-server/internal/gateway/normalizer"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/client"
+	"github.com/thorlaidanegg/clob-server/internal/gateway/normalizer"
 	"github.com/thorlaidanegg/clob-server/internal/shared/apierrors"
+	"github.com/thorlaidanegg/clob-server/internal/shared/metrics"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 )
@@ -51,6 +52,8 @@ func PlaceOrder(pool *pgxpool.Pool, orderStore ordersstore.Store, eng client.Eng
 			apierrors.WriteError(w, err)
 			return
 		}
+
+		metrics.OrdersPlacedTotal.WithLabelValues(params.MarketID, params.Side).Inc()
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)

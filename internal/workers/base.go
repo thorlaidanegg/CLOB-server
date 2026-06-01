@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/thorlaidanegg/clob-server/internal/bus"
+	"github.com/thorlaidanegg/clob-server/internal/shared/metrics"
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 	"github.com/thorlaidanegg/clob/events"
 )
@@ -154,9 +155,11 @@ func (w *WorkerRunner) Run(ctx context.Context) {
 		// Run handler and offset update in a single transaction.
 		if err := w.runTransaction(ctx, env); err != nil {
 			w.logger.Error().Err(err).Str("type", eventType).Uint64("seq", seqNum).Msg("worker: transaction failed")
+			metrics.WorkerEventErrorsTotal.WithLabelValues(w.workerName).Inc()
 			continue
 		}
 
+		metrics.WorkerEventsTotal.WithLabelValues(w.workerName, eventType).Inc()
 		w.lastSeqs[marketID] = seqNum
 		w.consumer.Commit(ctx, msg)
 	}
