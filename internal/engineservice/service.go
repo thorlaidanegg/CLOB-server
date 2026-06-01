@@ -16,6 +16,7 @@ import (
 	"github.com/thorlaidanegg/clob/engine"
 	"github.com/thorlaidanegg/clob/fees"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 )
 
 // Run starts the engine service: loads markets, wires the hook, starts gRPC, publishes events.
@@ -76,7 +77,19 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("engine: listen grpc")
 	}
-	grpcSrv := grpc.NewServer()
+	var grpcOpts []grpc.ServerOption
+	if cfg.GRPCTLSCertFile != "" && cfg.GRPCTLSKeyFile != "" {
+		creds, err := credentials.NewServerTLSFromFile(cfg.GRPCTLSCertFile, cfg.GRPCTLSKeyFile)
+		if err != nil {
+			log.Fatal().Err(err).Msg("engine: load gRPC TLS cert")
+		}
+		grpcOpts = append(grpcOpts, grpc.Creds(creds))
+		log.Info().Msg("engine: gRPC TLS enabled")
+	} else {
+		log.Warn().Msg("engine: gRPC serving plaintext (no TLS cert configured)")
+	}
+
+	grpcSrv := grpc.NewServer(grpcOpts...)
 	enginev1.RegisterEngineServiceServer(grpcSrv, NewEngineServer(multi, marketCfgs, log))
 	log.Info().Int("port", cfg.EngineGRPCPort).Msg("engine: gRPC server starting")
 

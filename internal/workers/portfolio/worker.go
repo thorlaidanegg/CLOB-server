@@ -32,7 +32,7 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("portfolio: kafka consumer")
 	}
-	defer consumer.Close()
+	// WorkerRunner closes the consumer on shutdown.
 
 	marketCfgs, err := engineservice.LoadMarkets(ctx, pool)
 	if err != nil {

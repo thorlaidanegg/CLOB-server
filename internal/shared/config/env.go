@@ -30,6 +30,18 @@ type Config struct {
 	EventBufferSize int
 
 	AdminBootstrapKey string
+
+	// gRPC TLS. If GRPCTLSCertFile and GRPCTLSKeyFile are both set, the engine
+	// serves gRPC over TLS. If GRPCTLSCAFile is set, the gateway dials over TLS
+	// verifying the server against that CA. All empty = plaintext (fine for VPC).
+	GRPCTLSCertFile string
+	GRPCTLSKeyFile  string
+	GRPCTLSCAFile   string
+
+	// CORS. Comma-separated list of allowed origins for browser frontends.
+	// Empty = CORS disabled (non-browser clients are unaffected either way).
+	// Use "*" to allow any origin.
+	CORSAllowedOrigins []string
 }
 
 // LoadFromEnv reads all configuration from environment variables.
@@ -54,6 +66,10 @@ func LoadFromEnv() *Config {
 		EventBufferSize: envInt("EVENT_BUFFER_SIZE", 50000),
 
 		AdminBootstrapKey: os.Getenv("ADMIN_BOOTSTRAP_KEY"),
+
+		GRPCTLSCertFile: os.Getenv("GRPC_TLS_CERT_FILE"),
+		GRPCTLSKeyFile:  os.Getenv("GRPC_TLS_KEY_FILE"),
+		GRPCTLSCAFile:   os.Getenv("GRPC_TLS_CA_FILE"),
 	}
 
 	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
@@ -62,6 +78,10 @@ func LoadFromEnv() *Config {
 
 	if markets := os.Getenv("MARKETS"); markets != "" {
 		cfg.Markets = strings.Split(markets, ",")
+	}
+
+	if origins := os.Getenv("CORS_ALLOWED_ORIGINS"); origins != "" {
+		cfg.CORSAllowedOrigins = strings.Split(origins, ",")
 	}
 
 	return cfg

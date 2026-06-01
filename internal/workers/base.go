@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -100,10 +101,15 @@ func (w *WorkerRunner) Run(ctx context.Context) {
 		w.consumer.SeekToOffset(p, offset)
 	}
 
+	// Graceful shutdown: on exit, flush the final committed offset and close the
+	// consumer so the group rebalances promptly instead of waiting for a session timeout.
+	defer w.shutdown()
+
 	for {
 		msg, err := w.consumer.Poll(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
+				w.logger.Info().Str("worker", w.workerName).Msg("worker: context canceled, shutting down")
 				return
 			}
 			w.logger.Error().Err(err).Msg("worker: poll error")
@@ -153,6 +159,20 @@ func (w *WorkerRunner) Run(ctx context.Context) {
 
 		w.lastSeqs[marketID] = seqNum
 		w.consumer.Commit(ctx, msg)
+	}
+}
+
+// shutdown flushes the final committed offset and closes the consumer.
+// Called on Run exit. Uses a fresh short-lived context because the worker's
+// own context is already canceled by the time we get here.
+func (w *WorkerRunner) shutdown() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := w.consumer.Commit(ctx, bus.Message{}); err != nil {
+		w.logger.Warn().Err(err).Str("worker", w.workerName).Msg("worker: final commit failed")
+	}
+	if err := w.consumer.Close(); err != nil {
+		w.logger.Warn().Err(err).Str("worker", w.workerName).Msg("worker: consumer close failed")
 	}
 }
 

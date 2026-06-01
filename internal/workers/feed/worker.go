@@ -29,7 +29,7 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("feed: kafka consumer")
 	}
-	defer consumer.Close()
+	// WorkerRunner closes the consumer on shutdown.
 
 	// Standalone feed creates its own hub; in a multi-gateway setup this would
 	// publish to Redis pub/sub which gateway instances subscribe to.

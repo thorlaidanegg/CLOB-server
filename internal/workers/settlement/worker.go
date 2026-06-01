@@ -25,7 +25,7 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("settlement: kafka consumer")
 	}
-	defer consumer.Close()
+	// WorkerRunner closes the consumer on shutdown.
 
 	orderStore := ordersstore.NewPgStore(pool)
 	handler := New(pool, orderStore, log)

@@ -10,6 +10,7 @@ import (
 	"github.com/thorlaidanegg/clob/events"
 	"github.com/thorlaidanegg/clob/types"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
@@ -20,10 +21,21 @@ type EngineClient struct {
 }
 
 // NewEngineClient dials the engine gRPC server.
-func NewEngineClient(addr string) (*EngineClient, error) {
-	conn, err := grpc.NewClient(addr,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+// If tlsCAFile is set, the connection uses TLS verifying the server against that
+// CA. Otherwise the connection is plaintext (acceptable inside a trusted VPC).
+func NewEngineClient(addr, tlsCAFile string) (*EngineClient, error) {
+	var creds credentials.TransportCredentials
+	if tlsCAFile != "" {
+		c, err := credentials.NewClientTLSFromFile(tlsCAFile, "")
+		if err != nil {
+			return nil, fmt.Errorf("engine client: load TLS CA %s: %w", tlsCAFile, err)
+		}
+		creds = c
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
 	if err != nil {
 		return nil, fmt.Errorf("engine client: dial %s: %w", addr, err)
 	}

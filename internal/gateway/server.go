@@ -110,7 +110,7 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	orderStore := ordersstore.NewPgStore(pool)
 
 	// Connect to engine via gRPC.
-	eng, err := client.NewEngineClient(cfg.EngineGRPCAddr)
+	eng, err := client.NewEngineClient(cfg.EngineGRPCAddr, cfg.GRPCTLSCAFile)
 	if err != nil {
 		log.Fatal().Err(err).Str("addr", cfg.EngineGRPCAddr).Msg("gateway: engine grpc client")
 	}
