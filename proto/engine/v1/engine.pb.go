@@ -617,6 +617,182 @@ func (x *GetBBOResponse) GetAsk() string {
 	return ""
 }
 
+type GetStatsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	MarketId      string                 `protobuf:"bytes,1,opt,name=market_id,json=marketId,proto3" json:"market_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetStatsRequest) Reset() {
+	*x = GetStatsRequest{}
+	mi := &file_engine_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStatsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStatsRequest) ProtoMessage() {}
+
+func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStatsRequest.ProtoReflect.Descriptor instead.
+func (*GetStatsRequest) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *GetStatsRequest) GetMarketId() string {
+	if x != nil {
+		return x.MarketId
+	}
+	return ""
+}
+
+type GetStatsResponse struct {
+	state             protoimpl.MessageState `protogen:"open.v1"`
+	MarketId          string                 `protobuf:"bytes,1,opt,name=market_id,json=marketId,proto3" json:"market_id,omitempty"`
+	State             string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
+	OrderSeq          uint64                 `protobuf:"varint,3,opt,name=order_seq,json=orderSeq,proto3" json:"order_seq,omitempty"`
+	EventSeq          uint64                 `protobuf:"varint,4,opt,name=event_seq,json=eventSeq,proto3" json:"event_seq,omitempty"`
+	OpenOrders        int32                  `protobuf:"varint,5,opt,name=open_orders,json=openOrders,proto3" json:"open_orders,omitempty"`
+	StopOrders        int32                  `protobuf:"varint,6,opt,name=stop_orders,json=stopOrders,proto3" json:"stop_orders,omitempty"`
+	BidLevels         int32                  `protobuf:"varint,7,opt,name=bid_levels,json=bidLevels,proto3" json:"bid_levels,omitempty"`
+	AskLevels         int32                  `protobuf:"varint,8,opt,name=ask_levels,json=askLevels,proto3" json:"ask_levels,omitempty"`
+	NodePoolUsed      int32                  `protobuf:"varint,9,opt,name=node_pool_used,json=nodePoolUsed,proto3" json:"node_pool_used,omitempty"`
+	NodePoolCapacity  int32                  `protobuf:"varint,10,opt,name=node_pool_capacity,json=nodePoolCapacity,proto3" json:"node_pool_capacity,omitempty"`
+	LevelPoolUsed     int32                  `protobuf:"varint,11,opt,name=level_pool_used,json=levelPoolUsed,proto3" json:"level_pool_used,omitempty"`
+	LevelPoolCapacity int32                  `protobuf:"varint,12,opt,name=level_pool_capacity,json=levelPoolCapacity,proto3" json:"level_pool_capacity,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GetStatsResponse) Reset() {
+	*x = GetStatsResponse{}
+	mi := &file_engine_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetStatsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetStatsResponse) ProtoMessage() {}
+
+func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_engine_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetStatsResponse.ProtoReflect.Descriptor instead.
+func (*GetStatsResponse) Descriptor() ([]byte, []int) {
+	return file_engine_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *GetStatsResponse) GetMarketId() string {
+	if x != nil {
+		return x.MarketId
+	}
+	return ""
+}
+
+func (x *GetStatsResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
+
+func (x *GetStatsResponse) GetOrderSeq() uint64 {
+	if x != nil {
+		return x.OrderSeq
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetEventSeq() uint64 {
+	if x != nil {
+		return x.EventSeq
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetOpenOrders() int32 {
+	if x != nil {
+		return x.OpenOrders
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetStopOrders() int32 {
+	if x != nil {
+		return x.StopOrders
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetBidLevels() int32 {
+	if x != nil {
+		return x.BidLevels
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetAskLevels() int32 {
+	if x != nil {
+		return x.AskLevels
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetNodePoolUsed() int32 {
+	if x != nil {
+		return x.NodePoolUsed
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetNodePoolCapacity() int32 {
+	if x != nil {
+		return x.NodePoolCapacity
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetLevelPoolUsed() int32 {
+	if x != nil {
+		return x.LevelPoolUsed
+	}
+	return 0
+}
+
+func (x *GetStatsResponse) GetLevelPoolCapacity() int32 {
+	if x != nil {
+		return x.LevelPoolCapacity
+	}
+	return 0
+}
+
 type StreamEventsRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	MarketId      string                 `protobuf:"bytes,1,opt,name=market_id,json=marketId,proto3" json:"market_id,omitempty"`
@@ -626,7 +802,7 @@ type StreamEventsRequest struct {
 
 func (x *StreamEventsRequest) Reset() {
 	*x = StreamEventsRequest{}
-	mi := &file_engine_proto_msgTypes[9]
+	mi := &file_engine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +814,7 @@ func (x *StreamEventsRequest) String() string {
 func (*StreamEventsRequest) ProtoMessage() {}
 
 func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[9]
+	mi := &file_engine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +827,7 @@ func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{9}
+	return file_engine_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *StreamEventsRequest) GetMarketId() string {
@@ -672,7 +848,7 @@ type EngineEvent struct {
 
 func (x *EngineEvent) Reset() {
 	*x = EngineEvent{}
-	mi := &file_engine_proto_msgTypes[10]
+	mi := &file_engine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -684,7 +860,7 @@ func (x *EngineEvent) String() string {
 func (*EngineEvent) ProtoMessage() {}
 
 func (x *EngineEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[10]
+	mi := &file_engine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -697,7 +873,7 @@ func (x *EngineEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EngineEvent.ProtoReflect.Descriptor instead.
 func (*EngineEvent) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{10}
+	return file_engine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *EngineEvent) GetEventType() string {
@@ -775,20 +951,41 @@ const file_engine_proto_rawDesc = "" +
 	"\tmarket_id\x18\x01 \x01(\tR\bmarketId\"4\n" +
 	"\x0eGetBBOResponse\x12\x10\n" +
 	"\x03bid\x18\x01 \x01(\tR\x03bid\x12\x10\n" +
-	"\x03ask\x18\x02 \x01(\tR\x03ask\"2\n" +
+	"\x03ask\x18\x02 \x01(\tR\x03ask\".\n" +
+	"\x0fGetStatsRequest\x12\x1b\n" +
+	"\tmarket_id\x18\x01 \x01(\tR\bmarketId\"\xab\x03\n" +
+	"\x10GetStatsResponse\x12\x1b\n" +
+	"\tmarket_id\x18\x01 \x01(\tR\bmarketId\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\x12\x1b\n" +
+	"\torder_seq\x18\x03 \x01(\x04R\borderSeq\x12\x1b\n" +
+	"\tevent_seq\x18\x04 \x01(\x04R\beventSeq\x12\x1f\n" +
+	"\vopen_orders\x18\x05 \x01(\x05R\n" +
+	"openOrders\x12\x1f\n" +
+	"\vstop_orders\x18\x06 \x01(\x05R\n" +
+	"stopOrders\x12\x1d\n" +
+	"\n" +
+	"bid_levels\x18\a \x01(\x05R\tbidLevels\x12\x1d\n" +
+	"\n" +
+	"ask_levels\x18\b \x01(\x05R\taskLevels\x12$\n" +
+	"\x0enode_pool_used\x18\t \x01(\x05R\fnodePoolUsed\x12,\n" +
+	"\x12node_pool_capacity\x18\n" +
+	" \x01(\x05R\x10nodePoolCapacity\x12&\n" +
+	"\x0flevel_pool_used\x18\v \x01(\x05R\rlevelPoolUsed\x12.\n" +
+	"\x13level_pool_capacity\x18\f \x01(\x05R\x11levelPoolCapacity\"2\n" +
 	"\x13StreamEventsRequest\x12\x1b\n" +
 	"\tmarket_id\x18\x01 \x01(\tR\bmarketId\"_\n" +
 	"\vEngineEvent\x12\x1d\n" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x18\n" +
 	"\apayload\x18\x02 \x01(\fR\apayload\x12\x17\n" +
-	"\aseq_num\x18\x03 \x01(\x04R\x06seqNum2\xf6\x02\n" +
+	"\aseq_num\x18\x03 \x01(\x04R\x06seqNum2\xbb\x03\n" +
 	"\rEngineService\x12I\n" +
 	"\n" +
 	"PlaceOrder\x12\x1c.engine.v1.PlaceOrderRequest\x1a\x1d.engine.v1.PlaceOrderResponse\x12L\n" +
 	"\vCancelOrder\x12\x1d.engine.v1.CancelOrderRequest\x1a\x1e.engine.v1.CancelOrderResponse\x12C\n" +
 	"\bGetDepth\x12\x1a.engine.v1.GetDepthRequest\x1a\x1b.engine.v1.GetDepthResponse\x12=\n" +
-	"\x06GetBBO\x12\x18.engine.v1.GetBBORequest\x1a\x19.engine.v1.GetBBOResponse\x12H\n" +
+	"\x06GetBBO\x12\x18.engine.v1.GetBBORequest\x1a\x19.engine.v1.GetBBOResponse\x12C\n" +
+	"\bGetStats\x12\x1a.engine.v1.GetStatsRequest\x1a\x1b.engine.v1.GetStatsResponse\x12H\n" +
 	"\fStreamEvents\x12\x1e.engine.v1.StreamEventsRequest\x1a\x16.engine.v1.EngineEvent0\x01B6Z4github.com/thorlaidanegg/clob-server/proto/engine/v1b\x06proto3"
 
 var (
@@ -803,7 +1000,7 @@ func file_engine_proto_rawDescGZIP() []byte {
 	return file_engine_proto_rawDescData
 }
 
-var file_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_engine_proto_goTypes = []any{
 	(*PlaceOrderRequest)(nil),   // 0: engine.v1.PlaceOrderRequest
 	(*PlaceOrderResponse)(nil),  // 1: engine.v1.PlaceOrderResponse
@@ -814,8 +1011,10 @@ var file_engine_proto_goTypes = []any{
 	(*DepthLevel)(nil),          // 6: engine.v1.DepthLevel
 	(*GetBBORequest)(nil),       // 7: engine.v1.GetBBORequest
 	(*GetBBOResponse)(nil),      // 8: engine.v1.GetBBOResponse
-	(*StreamEventsRequest)(nil), // 9: engine.v1.StreamEventsRequest
-	(*EngineEvent)(nil),         // 10: engine.v1.EngineEvent
+	(*GetStatsRequest)(nil),     // 9: engine.v1.GetStatsRequest
+	(*GetStatsResponse)(nil),    // 10: engine.v1.GetStatsResponse
+	(*StreamEventsRequest)(nil), // 11: engine.v1.StreamEventsRequest
+	(*EngineEvent)(nil),         // 12: engine.v1.EngineEvent
 }
 var file_engine_proto_depIdxs = []int32{
 	6,  // 0: engine.v1.GetDepthResponse.bids:type_name -> engine.v1.DepthLevel
@@ -824,14 +1023,16 @@ var file_engine_proto_depIdxs = []int32{
 	2,  // 3: engine.v1.EngineService.CancelOrder:input_type -> engine.v1.CancelOrderRequest
 	4,  // 4: engine.v1.EngineService.GetDepth:input_type -> engine.v1.GetDepthRequest
 	7,  // 5: engine.v1.EngineService.GetBBO:input_type -> engine.v1.GetBBORequest
-	9,  // 6: engine.v1.EngineService.StreamEvents:input_type -> engine.v1.StreamEventsRequest
-	1,  // 7: engine.v1.EngineService.PlaceOrder:output_type -> engine.v1.PlaceOrderResponse
-	3,  // 8: engine.v1.EngineService.CancelOrder:output_type -> engine.v1.CancelOrderResponse
-	5,  // 9: engine.v1.EngineService.GetDepth:output_type -> engine.v1.GetDepthResponse
-	8,  // 10: engine.v1.EngineService.GetBBO:output_type -> engine.v1.GetBBOResponse
-	10, // 11: engine.v1.EngineService.StreamEvents:output_type -> engine.v1.EngineEvent
-	7,  // [7:12] is the sub-list for method output_type
-	2,  // [2:7] is the sub-list for method input_type
+	9,  // 6: engine.v1.EngineService.GetStats:input_type -> engine.v1.GetStatsRequest
+	11, // 7: engine.v1.EngineService.StreamEvents:input_type -> engine.v1.StreamEventsRequest
+	1,  // 8: engine.v1.EngineService.PlaceOrder:output_type -> engine.v1.PlaceOrderResponse
+	3,  // 9: engine.v1.EngineService.CancelOrder:output_type -> engine.v1.CancelOrderResponse
+	5,  // 10: engine.v1.EngineService.GetDepth:output_type -> engine.v1.GetDepthResponse
+	8,  // 11: engine.v1.EngineService.GetBBO:output_type -> engine.v1.GetBBOResponse
+	10, // 12: engine.v1.EngineService.GetStats:output_type -> engine.v1.GetStatsResponse
+	12, // 13: engine.v1.EngineService.StreamEvents:output_type -> engine.v1.EngineEvent
+	8,  // [8:14] is the sub-list for method output_type
+	2,  // [2:8] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
@@ -848,7 +1049,7 @@ func file_engine_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_engine_proto_rawDesc), len(file_engine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

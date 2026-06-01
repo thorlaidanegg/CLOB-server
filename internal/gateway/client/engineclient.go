@@ -150,10 +150,27 @@ func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask st
 	return resp.Bid, resp.Ask, nil
 }
 
-func (c *EngineClient) GetStats(_ context.Context, marketID string) (MarketStats, error) {
-	// Stats RPC not yet in proto; gateway must fall back to Postgres market row.
-	// Return partial stats from the market ID only — a future proto extension can add GetStats.
-	return MarketStats{MarketID: marketID}, nil
+func (c *EngineClient) GetStats(ctx context.Context, marketID string) (MarketStats, error) {
+	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+	resp, err := c.client.GetStats(ctx, &enginev1.GetStatsRequest{MarketId: marketID})
+	if err != nil {
+		return MarketStats{}, err
+	}
+	return MarketStats{
+		MarketID:          resp.MarketId,
+		State:             resp.State,
+		OrderSeq:          resp.OrderSeq,
+		EventSeq:          resp.EventSeq,
+		OpenOrders:        int(resp.OpenOrders),
+		StopOrders:        int(resp.StopOrders),
+		BidLevels:         int(resp.BidLevels),
+		AskLevels:         int(resp.AskLevels),
+		NodePoolUsed:      int(resp.NodePoolUsed),
+		NodePoolCapacity:  int(resp.NodePoolCapacity),
+		LevelPoolUsed:     int(resp.LevelPoolUsed),
+		LevelPoolCapacity: int(resp.LevelPoolCapacity),
+	}, nil
 }
 
 func (c *EngineClient) Close() error {

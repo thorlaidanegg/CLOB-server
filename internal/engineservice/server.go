@@ -185,6 +185,27 @@ func (s *EngineServer) GetBBO(_ context.Context, req *enginev1.GetBBORequest) (*
 	return resp, nil
 }
 
+func (s *EngineServer) GetStats(_ context.Context, req *enginev1.GetStatsRequest) (*enginev1.GetStatsResponse, error) {
+	st, err := s.multi.Stats(types.MarketID(req.MarketId))
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "market not found: %s", req.MarketId)
+	}
+	return &enginev1.GetStatsResponse{
+		MarketId:          string(st.MarketID),
+		State:             st.State.String(),
+		OrderSeq:          st.OrderSeq,
+		EventSeq:          st.EventSeq,
+		OpenOrders:        int32(st.OpenOrders),
+		StopOrders:        int32(st.StopOrders),
+		BidLevels:         int32(st.BidLevels),
+		AskLevels:         int32(st.AskLevels),
+		NodePoolUsed:      int32(st.NodePoolUsed),
+		NodePoolCapacity:  int32(st.NodePoolCapacity),
+		LevelPoolUsed:     int32(st.LevelPoolUsed),
+		LevelPoolCapacity: int32(st.LevelPoolCapacity),
+	}, nil
+}
+
 func (s *EngineServer) StreamEvents(req *enginev1.StreamEventsRequest, stream enginev1.EngineService_StreamEventsServer) error {
 	evCh, err := s.multi.Events(types.MarketID(req.MarketId))
 	if err != nil {

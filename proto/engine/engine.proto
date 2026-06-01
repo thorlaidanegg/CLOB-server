@@ -7,6 +7,7 @@ service EngineService {
   rpc CancelOrder  (CancelOrderRequest) returns (CancelOrderResponse);
   rpc GetDepth     (GetDepthRequest)    returns (GetDepthResponse);
   rpc GetBBO       (GetBBORequest)      returns (GetBBOResponse);
+  rpc GetStats     (GetStatsRequest)    returns (GetStatsResponse);
   rpc StreamEvents (StreamEventsRequest) returns (stream EngineEvent);
 }
 
@@ -64,6 +65,22 @@ message DepthLevel {
 
 message GetBBORequest  { string market_id = 1; }
 message GetBBOResponse { string bid = 1; string ask = 2; }
+
+message GetStatsRequest { string market_id = 1; }
+message GetStatsResponse {
+  string market_id           = 1;
+  string state               = 2;
+  uint64 order_seq           = 3;
+  uint64 event_seq           = 4;
+  int32  open_orders         = 5;
+  int32  stop_orders         = 6;
+  int32  bid_levels          = 7;
+  int32  ask_levels          = 8;
+  int32  node_pool_used      = 9;
+  int32  node_pool_capacity  = 10;
+  int32  level_pool_used     = 11;
+  int32  level_pool_capacity = 12;
+}
 
 message StreamEventsRequest { string market_id = 1; }
 message EngineEvent {

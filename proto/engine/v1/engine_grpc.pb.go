@@ -23,6 +23,7 @@ const (
 	EngineService_CancelOrder_FullMethodName  = "/engine.v1.EngineService/CancelOrder"
 	EngineService_GetDepth_FullMethodName     = "/engine.v1.EngineService/GetDepth"
 	EngineService_GetBBO_FullMethodName       = "/engine.v1.EngineService/GetBBO"
+	EngineService_GetStats_FullMethodName     = "/engine.v1.EngineService/GetStats"
 	EngineService_StreamEvents_FullMethodName = "/engine.v1.EngineService/StreamEvents"
 )
 
@@ -34,6 +35,7 @@ type EngineServiceClient interface {
 	CancelOrder(ctx context.Context, in *CancelOrderRequest, opts ...grpc.CallOption) (*CancelOrderResponse, error)
 	GetDepth(ctx context.Context, in *GetDepthRequest, opts ...grpc.CallOption) (*GetDepthResponse, error)
 	GetBBO(ctx context.Context, in *GetBBORequest, opts ...grpc.CallOption) (*GetBBOResponse, error)
+	GetStats(ctx context.Context, in *GetStatsRequest, opts ...grpc.CallOption) (*GetStatsResponse, error)
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EngineEvent], error)
 }
 
@@ -85,6 +87,16 @@ func (c *engineServiceClient) GetBBO(ctx context.Context, in *GetBBORequest, opt
 	return out, nil
 }
 
+func (c *engineServiceClient) GetStats(ctx context.Context, in *GetStatsRequest, opts ...grpc.CallOption) (*GetStatsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetStatsResponse)
+	err := c.cc.Invoke(ctx, EngineService_GetStats_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *engineServiceClient) StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EngineEvent], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	stream, err := c.cc.NewStream(ctx, &EngineService_ServiceDesc.Streams[0], EngineService_StreamEvents_FullMethodName, cOpts...)
@@ -112,6 +124,7 @@ type EngineServiceServer interface {
 	CancelOrder(context.Context, *CancelOrderRequest) (*CancelOrderResponse, error)
 	GetDepth(context.Context, *GetDepthRequest) (*GetDepthResponse, error)
 	GetBBO(context.Context, *GetBBORequest) (*GetBBOResponse, error)
+	GetStats(context.Context, *GetStatsRequest) (*GetStatsResponse, error)
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[EngineEvent]) error
 	mustEmbedUnimplementedEngineServiceServer()
 }
@@ -134,6 +147,9 @@ func (UnimplementedEngineServiceServer) GetDepth(context.Context, *GetDepthReque
 }
 func (UnimplementedEngineServiceServer) GetBBO(context.Context, *GetBBORequest) (*GetBBOResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetBBO not implemented")
+}
+func (UnimplementedEngineServiceServer) GetStats(context.Context, *GetStatsRequest) (*GetStatsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetStats not implemented")
 }
 func (UnimplementedEngineServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[EngineEvent]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
@@ -231,6 +247,24 @@ func _EngineService_GetBBO_Handler(srv interface{}, ctx context.Context, dec fun
 	return interceptor(ctx, in, info, handler)
 }
 
+func _EngineService_GetStats_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetStatsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EngineServiceServer).GetStats(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EngineService_GetStats_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EngineServiceServer).GetStats(ctx, req.(*GetStatsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _EngineService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
 	m := new(StreamEventsRequest)
 	if err := stream.RecvMsg(m); err != nil {
@@ -264,6 +298,10 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetBBO",
 			Handler:    _EngineService_GetBBO_Handler,
+		},
+		{
+			MethodName: "GetStats",
+			Handler:    _EngineService_GetStats_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

@@ -173,6 +173,43 @@ func TestDirectAdapter_CrossingOrdersFill(t *testing.T) {
 	t.Error("book should be empty after a full fill")
 }
 
+func TestDirectAdapter_GetStats(t *testing.T) {
+	adapter, _, _ := setupEngine(t)
+
+	_, err := adapter.PlaceOrder(context.Background(), gatewayclient.PlaceOrderRequest{
+		OrderID: "ord_s", UserID: "alice", MarketID: "BTC-USD",
+		Side: "bid", OrderType: "limit", Price: "100.00", Qty: "5", TIF: "GTC",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitForBid(t, adapter, "100.00")
+
+	stats, err := adapter.GetStats(context.Background(), "BTC-USD")
+	if err != nil {
+		t.Fatalf("get stats: %v", err)
+	}
+	if stats.MarketID != "BTC-USD" {
+		t.Errorf("marketID = %q, want BTC-USD", stats.MarketID)
+	}
+	if stats.OpenOrders != 1 {
+		t.Errorf("openOrders = %d, want 1", stats.OpenOrders)
+	}
+	if stats.BidLevels != 1 {
+		t.Errorf("bidLevels = %d, want 1", stats.BidLevels)
+	}
+	if stats.NodePoolCapacity == 0 {
+		t.Error("nodePoolCapacity should be reported (> 0)")
+	}
+}
+
+func TestDirectAdapter_GetStatsUnknownMarket(t *testing.T) {
+	adapter, _, _ := setupEngine(t)
+	if _, err := adapter.GetStats(context.Background(), "NOPE"); err == nil {
+		t.Error("expected error for unknown market")
+	}
+}
+
 func TestDirectAdapter_MarketNotFound(t *testing.T) {
 	adapter, _, _ := setupEngine(t)
 

@@ -13,8 +13,15 @@ import (
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 )
 
-// RequirePostgres connects to the test database, runs migrations, and truncates
-// all tables for a clean slate. Skips the test if TEST_POSTGRES_DSN is unset.
+// lockID is an arbitrary constant for the global integration-test advisory lock.
+// Every RequirePostgres holds this lock for the duration of its test so that
+// integration tests across packages never truncate each other's data, even though
+// `go test ./...` runs package test binaries in parallel against one database.
+const lockID int64 = 0xC10B7E57 // "CLOB TEST"
+
+// RequirePostgres connects to the test database, runs migrations, acquires a
+// global advisory lock, and truncates all tables for a clean slate. Skips the
+// test if TEST_POSTGRES_DSN is unset. The lock and a final truncate run on cleanup.
 //
 // Example:
 //
@@ -27,7 +34,7 @@ func RequirePostgres(t *testing.T) *pgxpool.Pool {
 		t.Skip("TEST_POSTGRES_DSN not set — skipping Postgres integration test")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	pool, err := pgstore.Connect(ctx, dsn)
@@ -38,9 +45,23 @@ func RequirePostgres(t *testing.T) *pgxpool.Pool {
 		t.Fatalf("testsupport: migrations: %v", err)
 	}
 
+	// Hold a session-scoped advisory lock on a dedicated connection for the whole
+	// test. Other integration tests block here until this one finishes, giving each
+	// test exclusive use of the database. pg_advisory_lock blocks rather than fails.
+	lockConn, err := pool.Acquire(context.Background())
+	if err != nil {
+		t.Fatalf("testsupport: acquire lock conn: %v", err)
+	}
+	if _, err := lockConn.Exec(context.Background(), "SELECT pg_advisory_lock($1)", lockID); err != nil {
+		lockConn.Release()
+		t.Fatalf("testsupport: advisory lock: %v", err)
+	}
+
 	TruncateAll(t, pool)
 	t.Cleanup(func() {
 		TruncateAll(t, pool)
+		lockConn.Exec(context.Background(), "SELECT pg_advisory_unlock($1)", lockID)
+		lockConn.Release() // ends the session, dropping the lock even if unlock failed
 		pool.Close()
 	})
 	return pool

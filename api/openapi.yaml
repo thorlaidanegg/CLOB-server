@@ -657,9 +657,9 @@ paths:
     get:
       summary: Get live engine stats for a market
       description: |
-        Returns real-time resource utilisation from the matching engine.
-        In ROLE=all the data is live; in split-role (ROLE=gateway) returns partial data
-        until gRPC GetStats RPC is implemented.
+        Returns real-time resource utilisation from the matching engine — open orders,
+        stop orders, bid/ask levels, memory-pool usage, and sequence numbers. Live in
+        both ROLE=all (in-process) and split-role (over the engine GetStats gRPC).
       tags: [Admin]
       responses:
         "200":
