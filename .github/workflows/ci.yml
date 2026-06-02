@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: Lint, Build & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: clob_test
+          POSTGRES_USER: clob
+          POSTGRES_PASSWORD: clob
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U clob"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # Enables the Postgres integration tests (they skip when this is unset).
+      TEST_POSTGRES_DSN: postgres://clob:clob@localhost:5432/clob_test?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache-dependency-path: go.sum
+
+      # clob is consumed as a published module from the Go proxy
+      # (github.com/thorlaidanegg/clob) — no local checkout needed.
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Lint (go vet)
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test -race ./...
