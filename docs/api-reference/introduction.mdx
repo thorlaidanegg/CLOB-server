@@ -1,0 +1,64 @@
+---
+title: "API reference"
+description: "REST API conventions, auth, and the interactive playground."
+icon: "code"
+---
+
+The clob-server REST API is documented below with an interactive playground —
+every endpoint can be tried directly from these pages. The full machine-readable
+spec lives at
+[`api/openapi.yaml`](https://github.com/thorlaidanegg/clob-server/blob/main/api/openapi.yaml).
+
+## Base URL
+
+```
+http://localhost:8080
+```
+
+Change the server in the playground's dropdown to point at your deployment.
+
+## Conventions
+
+<CardGroup cols={2}>
+  <Card title="Money is decimal strings" icon="calculator">
+    All prices, quantities, and amounts are strings like `"100.00"` — never
+    numbers. This preserves exact fixed-point precision.
+  </Card>
+  <Card title="Orders are async" icon="clock">
+    `POST /v1/orders` returns **202 Accepted**. The fill arrives over the
+    [WebSocket stream](/docs/guides/websocket), not in the HTTP response.
+  </Card>
+  <Card title="Bearer auth" icon="key">
+    Send `Authorization: Bearer <key>` on every non-public endpoint. See
+    [Authentication](/docs/guides/authentication).
+  </Card>
+  <Card title="Server-generated order IDs" icon="hashtag">
+    The gateway assigns each `orderID`; clients never supply one. Reference
+    orders by the returned ID.
+  </Card>
+</CardGroup>
+
+## Public vs authenticated
+
+These endpoints need **no** auth: `GET /health`, `GET /v1/markets`,
+`GET /v1/markets/{id}`, `GET /v1/markets/{id}/depth`,
+`GET /v1/markets/{id}/trades`, and `GET /v1/leaderboard`. Everything else
+requires a key; admin routes require the `admin:all` scope.
+
+## Error responses
+
+Errors return a JSON body `{ "error": "message" }` with a conventional status:
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Validation error (bad side/TIF, missing price, …) |
+| `401` | Missing, invalid, revoked, or expired key |
+| `402` | Insufficient credits |
+| `403` | Missing scope, or order belongs to another user |
+| `404` | Order or market not found |
+| `429` | Rate limit exceeded |
+
+<Tip>
+  Set your key once via the **Authorization** field at the top of any endpoint's
+  playground and it's reused across requests in this session.
+</Tip>

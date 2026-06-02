@@ -1,0 +1,106 @@
+---
+title: "Wallet & settlement model"
+description: "Exactly how virtual credits and positions move on every order and fill."
+icon: "wallet"
+---
+
+This is the canonical spec for credit and position accounting. The pre-order
+hook and the settlement worker implement it exactly.
+
+## Long-only spot
+
+- Each user holds a **credit wallet**: `available` and `reserved` (both ≥ 0).
+- Each user holds a **position** per market: `quantity` (≥ 0 — long only),
+  `avg_entry_price`, `realised_pnl`.
+- **Credits are the only currency.** A position is acquired by spending credits
+  (buying) and liquidated for credits (selling). There is no separate asset
+  balance and **no shorting** — you cannot sell more than you hold.
+
+## Placing an order
+
+<Tabs>
+  <Tab title="Buy (bid)">
+    Reserves the maximum the order could cost, moving credits
+    `available → reserved`:
+
+    | Order type | Reserved |
+    |------------|----------|
+    | limit  | `price × qty` (exact) |
+    | market | `bestAsk × qty × 2` (BBO estimate with a 2× slippage buffer); if no BBO, accept and reconcile at settlement |
+
+    The per-unit reservation is written to `orders.reserved_per_unit`. **Buys
+    always have `reserved_per_unit > 0`.** Rejected if `available < required`.
+  </Tab>
+  <Tab title="Sell (ask)">
+    A sell liquidates a position you already hold. It reserves **no credits**.
+    The hook instead validates your holdings:
+
+    ```
+    reject if position.quantity < qty   // long-only: can't sell what you don't own
+    ```
+
+    `reserved_per_unit` stays `0` for sells.
+  </Tab>
+</Tabs>
+
+## Settling a fill
+
+Settlement branches on **`fill.Side`**, never on maker/taker role. Maker and
+taker buyers are accounted identically — the only difference, the fee, is already
+in `fill.Fee`.
+
+<Tabs>
+  <Tab title="Buyer (fill.Side == bid)">
+    The reservation is consumed and the real cost is paid:
+
+    ```
+    reservationForFill = reserved_per_unit × filledQty
+    cost               = fillPrice × filledQty + fee
+
+    reserved  -= reservationForFill
+    available += reservationForFill - cost
+    ```
+
+    Total balance falls by exactly **`cost`**. The `available` adjustment refunds
+    any over-reservation — price improvement for a taker, or the unused 2×
+    market-buy buffer.
+  </Tab>
+  <Tab title="Seller (fill.Side == ask)">
+    The seller never reserved credits; they receive the proceeds:
+
+    ```
+    proceeds = fillPrice × filledQty - fee
+    available += proceeds
+    ```
+
+    `reserved` is untouched. Realised PnL is implicit and consistent: the seller
+    paid `avgEntry × qty` when buying and now receives `fillPrice × qty`.
+  </Tab>
+</Tabs>
+
+## Cancel, reject, and restart
+
+A cancel, reject, or engine restart must return whatever the hook reserved — and
+**only buys ever reserved**. Every release path is guarded by
+`reserved_per_unit > 0`:
+
+```
+if order.reserved_per_unit > 0:        # a buy
+    release = reserved_per_unit × remainingQty
+    reserved  -= release
+    available += release
+# sells: reserved_per_unit == 0 → nothing to release
+```
+
+<Note>
+  There is **no `price`-based fallback**. A sell limit order has `price > 0` but
+  reserved nothing; falling back to `price × qty` would wrongly credit the seller.
+</Note>
+
+## Invariants
+
+1. `available ≥ 0` and `reserved ≥ 0` at all times (enforced by DB CHECK constraints).
+2. `reserved_per_unit > 0` ⟺ the order is a buy that reserved credits.
+3. A buy's total balance falls by exactly its fill cost; a sell's available rises by exactly its proceeds.
+4. Settlement decides credit direction by `fill.Side`, never by maker/taker role.
+5. All settlement credit mutations happen via inline SQL inside the worker's single transaction (idempotent with `worker_offsets`).

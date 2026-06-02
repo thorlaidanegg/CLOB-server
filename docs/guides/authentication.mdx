@@ -1,0 +1,102 @@
+---
+title: "Authentication"
+description: "API keys, scopes, and how validation works."
+icon: "key"
+---
+
+Every non-public endpoint authenticates with an API key sent as a bearer token:
+
+```http
+Authorization: Bearer clob_live_xxxxxxxxxxxxxxxxxxxx
+```
+
+<Note>
+  **API keys are the only authentication mechanism.** There is no OAuth, no
+  username/password login, and no sessions — clients (bots, scripts, frontends)
+  all authenticate with a bearer key. Per key, the server tracks `last_used_at`,
+  `revoked`, and an optional `expires_at`.
+</Note>
+
+## Key format
+
+| Prefix | Tier |
+|--------|------|
+| `clob_live_…` | standard user |
+| `clob_admin_…` | admin |
+| `clob_ro_…` | read-only |
+
+Keys are `prefix + base58(32 random bytes)`. The server stores only
+`sha256(key)` — the **full key is shown once at creation** and never again.
+
+## Manage your keys
+
+<CodeGroup>
+```bash Create
+curl -X POST localhost:8080/v1/apikeys -H "Authorization: Bearer $KEY" \
+  -d '{"name":"my bot"}'
+# → {"fullKey":"clob_live_...","keyPrefix":"clob_live_..."}
+```
+
+```bash List
+curl localhost:8080/v1/apikeys -H "Authorization: Bearer $KEY"
+# hashes are scrubbed; only prefixes are shown
+```
+
+```bash Revoke
+curl -X DELETE localhost:8080/v1/apikeys/{id} -H "Authorization: Bearer $KEY"
+```
+</CodeGroup>
+
+<Warning>
+  Lost a key? You can't recover it — revoke it and create a new one.
+</Warning>
+
+## Scopes
+
+| Scope | Grants |
+|-------|--------|
+| `orders:read` / `orders:write` | read / place & cancel orders |
+| `portfolio:read` | read portfolio |
+| `admin:all` | all admin operations (admin keys only) |
+
+Admin endpoints require the `admin:all` scope. The bootstrap key
+(`ADMIN_BOOTSTRAP_KEY`) has it.
+
+## How validation works
+
+<Steps>
+  <Step title="Hash and cache lookup">
+    The gateway hashes the key (`sha256`) and checks Redis
+    (`apikey:{hash}`, 60s TTL). On a hit, the request proceeds with no database
+    round-trip.
+  </Step>
+  <Step title="Postgres fallback">
+    On a cache miss it queries `api_keys`. A missing, revoked, or expired key is
+    rejected (`401`). A valid key is cached for 60 seconds.
+  </Step>
+  <Step title="Scope check">
+    For admin routes, the gateway then verifies the key carries `admin:all`
+    (else `403`).
+  </Step>
+</Steps>
+
+## Rate limits
+
+Limits are enforced at the transport level:
+
+| Transport | Limit | Scope | Configured by |
+|-----------|-------|-------|---------------|
+| REST | **300 requests / minute** | per API key | `RATE_LIMIT_RPM` |
+| WebSocket | **50 messages / second** | per connection | `RATE_LIMIT_WS_RPS` |
+
+REST limits use a Redis counter per key per minute and return `429` when
+exceeded. A key may carry its own `rate_limit` value in the `api_keys` table to
+override the REST default. WebSocket limits are enforced in-memory per
+connection; exceeding the limit returns an error message but keeps the
+connection open.
+
+## WebSocket authentication
+
+WebSocket connections authenticate with the **first message** (the upgrade
+handshake can't carry a bearer header cleanly) — see the
+[WebSocket guide](/docs/guides/websocket).

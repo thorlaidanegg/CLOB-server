@@ -1,0 +1,131 @@
+---
+title: "Quickstart"
+description: "Run the whole stack locally and place your first order."
+icon: "rocket"
+---
+
+This guide gets clob-server running in `ROLE=all` mode (everything in one
+process, no Kafka) and walks you through creating a market, funding a user, and
+placing an order.
+
+## Prerequisites
+
+- [Docker](https://www.docker.com/) with Docker Compose
+- `curl` (or any HTTP client)
+
+## 1. Run the stack
+
+```bash
+git clone https://github.com/thorlaidanegg/clob-server
+cd clob-server
+cp .env.example .env
+docker compose up --build
+```
+
+The API is now live at `http://localhost:8080`. On first run, a bootstrap admin
+key is created from `ADMIN_BOOTSTRAP_KEY` in your `.env`.
+
+<Check>
+  Confirm it's up: `curl localhost:8080/health` → `{"status":"ok"}`
+</Check>
+
+## 2. Create a market
+
+All admin calls use the bootstrap admin key.
+
+```bash
+ADMIN="clob_admin_devbootstrapkeylocal"
+
+curl -X POST localhost:8080/v1/admin/markets \
+  -H "Authorization: Bearer $ADMIN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "marketID": "BTC-USD",
+    "baseAsset": "BTC",
+    "quoteAsset": "USD",
+    "pricePrecision": 2,
+    "qtyPrecision": 2,
+    "tickSize": 1,
+    "lotSize": 1,
+    "features": 1
+  }'
+```
+
+## 3. Create users and grant credits
+
+```bash
+curl -X POST localhost:8080/v1/admin/users -H "Authorization: Bearer $ADMIN" \
+  -d '{"userID":"alice","email":"alice@example.com"}'
+curl -X POST localhost:8080/v1/admin/users -H "Authorization: Bearer $ADMIN" \
+  -d '{"userID":"bob","email":"bob@example.com"}'
+
+curl -X POST localhost:8080/v1/admin/users/alice/credits -H "Authorization: Bearer $ADMIN" \
+  -d '{"amount":"10000.00"}'
+curl -X POST localhost:8080/v1/admin/users/bob/credits -H "Authorization: Bearer $ADMIN" \
+  -d '{"amount":"10000.00"}'
+```
+
+## 4. Issue API keys
+
+Each user trades with their own key. Generate one with an authenticated call
+(here the admin key acts on behalf of the platform; in a real deployment each
+user creates their own key after signing in).
+
+```bash
+curl -X POST localhost:8080/v1/apikeys -H "Authorization: Bearer $ADMIN" \
+  -d '{"name":"alice cli"}'
+# → {"fullKey":"clob_live_...","keyPrefix":"clob_live_..."}
+```
+
+<Warning>
+  The full key is returned **once** and never stored server-side. Save it now —
+  if lost, revoke it and generate a new one.
+</Warning>
+
+## 5. Place crossing orders
+
+```bash
+ALICE="clob_live_..."   # alice's key
+BOB="clob_live_..."     # bob's key
+
+# Alice rests a bid
+curl -X POST localhost:8080/v1/orders -H "Authorization: Bearer $ALICE" \
+  -d '{"marketID":"BTC-USD","side":"bid","orderType":"limit","price":"100.00","qty":"5.00","tif":"GTC"}'
+
+# Bob sells into it → trade executes at 100.00
+curl -X POST localhost:8080/v1/orders -H "Authorization: Bearer $BOB" \
+  -d '{"marketID":"BTC-USD","side":"ask","orderType":"limit","price":"99.00","qty":"5.00","tif":"GTC"}'
+```
+
+<Note>
+  Orders return **202 Accepted** — matching is asynchronous. The resulting fill
+  is delivered over the [WebSocket stream](/docs/guides/websocket), and the book,
+  wallets, positions, and leaderboard update within milliseconds.
+</Note>
+
+## 6. Verify
+
+```bash
+curl localhost:8080/v1/portfolio  -H "Authorization: Bearer $ALICE"   # long 5 BTC-USD
+curl localhost:8080/v1/portfolio  -H "Authorization: Bearer $BOB"     # realised PnL
+curl localhost:8080/v1/leaderboard                                    # public
+curl localhost:8080/v1/markets/BTC-USD/depth                          # public
+curl localhost:8080/v1/markets/BTC-USD/trades                         # public
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Architecture" icon="sitemap" href="/docs/concepts/architecture">
+    Understand the roles and event flow.
+  </Card>
+  <Card title="WebSocket" icon="plug" href="/docs/guides/websocket">
+    Stream fills and trade over a live connection.
+  </Card>
+  <Card title="Configuration" icon="sliders" href="/docs/guides/configuration">
+    Every environment variable explained.
+  </Card>
+  <Card title="API reference" icon="code" href="/docs/api-reference/introduction">
+    Try every endpoint in the playground.
+  </Card>
+</CardGroup>

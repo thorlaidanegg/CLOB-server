@@ -1,0 +1,73 @@
+---
+title: "Deployment"
+description: "From a single process to a multi-VM split-role cluster."
+icon: "server"
+---
+
+The same binary deploys three ways, selected by how you split the `ROLE`.
+
+## All-in-one
+
+`ROLE=all` runs every role in one process with an in-memory bus. Only Postgres
+and Redis are required — no Kafka.
+
+```bash
+cp .env.example .env   # ROLE=all
+docker compose up --build
+```
+
+Best for local development, demos, and small instances.
+
+<Warning>
+  The book is in memory and events are not durable across a restart of the single
+  process. Use split roles for production durability.
+</Warning>
+
+## Single-VM, split roles
+
+Each role runs as its own container on one host, wired together by Redpanda
+(Kafka), Postgres, and Redis.
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+```
+
+Required variables are validated at startup (the compose file uses
+`${VAR:?message}` so a missing value fails loudly). The engine's gRPC port is
+bound to localhost only; put TLS termination and a reverse proxy in front of the
+gateway.
+
+## Multi-VM
+
+| Component | Placement | Scaling |
+|-----------|-----------|---------|
+| Engine | Dedicated host(s) | By markets per instance, or instances per symbol group |
+| Gateway | Behind a load balancer with **sticky sessions** (required for WebSocket) | Horizontally |
+| Workers | Dedicated host(s) | By Kafka partitions |
+| Postgres / Redis / Kafka | Managed services | Independently |
+
+## Building the image
+
+```bash
+docker build -t clob-server .
+```
+
+The `Dockerfile` is a two-stage build producing a static binary on `alpine`,
+exposing `8080` (HTTP) and `50051` (gRPC).
+
+## Health & observability
+
+| Endpoint | Purpose |
+|----------|---------|
+| `GET /health` | Liveness — `{"status":"ok"}` |
+| `GET /metrics` | Prometheus metrics (HTTP latency/counts, orders placed, worker events). Expose only on a trusted network. |
+
+Logs are structured JSON (zerolog) in non-local environments, with a request ID
+on every HTTP request.
+
+## Restart recovery (v1)
+
+On engine restart, any orders left open in Postgres are canceled and their
+reserved credits released before the engine accepts new commands. Credits and
+positions are always consistent; only open orders are affected — users re-enter
+them. Exact book recovery (a write-ahead log) is the planned v2 enhancement.

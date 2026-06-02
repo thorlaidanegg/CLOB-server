@@ -1,0 +1,57 @@
+---
+title: "Configuration"
+description: "Every environment variable, with its role and default."
+icon: "sliders"
+---
+
+All configuration is via environment variables. Copy
+[`.env.example`](https://github.com/thorlaidanegg/clob-server/blob/main/.env.example)
+to `.env` and edit.
+
+## Core
+
+| Variable | Roles | Default | Description |
+|----------|-------|---------|-------------|
+| `ROLE` | all | — *(required)* | `engine` · `gateway` · `settlement` · `portfolio` · `leaderboard` · `feed` · `all` |
+| `LOG_LEVEL` | all | `info` | `debug` · `info` · `warn` · `error` |
+| `ENVIRONMENT` | all | `local` | `local` · `staging` · `production` |
+
+## Infrastructure
+
+| Variable | Roles | Default | Description |
+|----------|-------|---------|-------------|
+| `POSTGRES_DSN` | most | — | Postgres connection string |
+| `REDIS_ADDR` | gateway, workers | `localhost:6379` | Redis address |
+| `KAFKA_BROKERS` | engine, workers | — | Comma-separated brokers. **Unset ⇒ in-memory bus** (single process). |
+
+## Engine & gateway
+
+| Variable | Roles | Default | Description |
+|----------|-------|---------|-------------|
+| `ENGINE_GRPC_PORT` | engine | `50051` | gRPC listen port |
+| `ENGINE_GRPC_ADDR` | gateway | `localhost:50051` | Engine gRPC address |
+| `HTTP_PORT` | gateway | `8080` | HTTP listen port |
+| `MARKETS` | engine | — | Comma-separated market IDs to load at startup |
+| `RATE_LIMIT_RPM` | gateway | `300` | REST requests/min per key |
+| `RATE_LIMIT_WS_RPS` | gateway | `50` | WS messages/sec per connection |
+| `ADMIN_BOOTSTRAP_KEY` | gateway | — | If set and no admin key exists, seeds a bootstrap admin key on first run |
+
+## Security
+
+| Variable | Roles | Description |
+|----------|-------|-------------|
+| `GRPC_TLS_CERT_FILE` / `GRPC_TLS_KEY_FILE` | engine | Serve gRPC over TLS |
+| `GRPC_TLS_CA_FILE` | gateway | Dial the engine over TLS, verifying this CA |
+| `CORS_ALLOWED_ORIGINS` | gateway | Comma-separated browser origins (`*` for any). Empty = disabled. |
+
+<Note>
+  **CORS is browser-only.** Bots, mobile apps, and `curl` are unaffected whether
+  it's enabled or not. Set `CORS_ALLOWED_ORIGINS` only to let a browser frontend
+  on a different domain read responses.
+</Note>
+
+<Tip>
+  gRPC TLS is optional — plaintext is fine inside a trusted VPC. Set the
+  cert/key on the engine and the CA on the gateway to enable it for cross-VM
+  deployments.
+</Tip>

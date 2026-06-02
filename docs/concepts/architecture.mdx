@@ -1,0 +1,121 @@
+---
+title: "Architecture"
+description: "Roles, one-directional event flow, and the idempotency guarantee."
+icon: "sitemap"
+---
+
+clob-server is split into independently deployable **roles**. The defining rule:
+**commands flow one way, events flow the other, and no worker ever calls another
+worker or the engine.** Every component communicates only through the event bus.
+This is what makes each piece independently scalable and testable.
+
+```
+                ┌──────────────────────────────────────┐
+                │   Clients (browser · bot · mobile)    │
+                └──────────────────┬───────────────────┘
+                                   │ REST + WebSocket
+                ┌──────────────────▼───────────────────┐
+                │              GATEWAY                  │
+                │  auth · rate-limit · normalizer       │
+                │  REST · WebSocket · admin · /metrics  │
+                └──────────────────┬───────────────────┘
+                                   │ gRPC
+                ┌──────────────────▼───────────────────┐
+                │           ENGINE SERVICE              │
+                │  PreOrderHook → credit reservation    │
+                │  ┌─────────────────────────────────┐  │
+                │  │   clob library (in-memory book)  │  │
+                │  └─────────────────────────────────┘  │
+                │  Event publisher → bus                │
+                └──────────────────┬───────────────────┘
+                                   │ market-events (partitioned by marketID)
+        ┌──────────────┬───────────┴──────────┬──────────────┐
+        ▼              ▼                      ▼              ▼
+   Settlement      Portfolio             Leaderboard        Feed
+    (wallets)     (positions)            (Redis ZSET)    (WebSocket)
+     Postgres       Postgres                Redis        gateway WS
+```
+
+## Roles
+
+| `ROLE` | Responsibility |
+|--------|----------------|
+| `engine` | Runs the matching engine, the credit-reservation hook, the gRPC server, and publishes events. |
+| `gateway` | The only public process. REST + WebSocket API, auth, rate limiting, admin routes, metrics. Talks to the engine over gRPC. |
+| `settlement` | Consumes fills/cancels → updates virtual-credit wallets. |
+| `portfolio` | Consumes fills → updates positions, average entry, realised PnL. |
+| `leaderboard` | Consumes sell fills → maintains a Redis sorted set of realised PnL. |
+| `feed` | Consumes all events → fans them out to subscribed WebSocket clients. |
+| `all` | Runs every role in one process using an **in-memory bus** (no Kafka). |
+
+## Two ways to deploy the same binary
+
+<Tabs>
+  <Tab title="ROLE=all (single process)">
+    Every role runs as a goroutine in one process. The Kafka bus is replaced by
+    an in-memory fan-out channel, and the gateway calls the engine in-process
+    (no gRPC). Only **Postgres and Redis** are required.
+
+    Ideal for local development, demos, and small deployments.
+
+    <Warning>
+      The order book is in memory and events are not durable across a restart of
+      that single process. Fine for dev — not for production.
+    </Warning>
+  </Tab>
+  <Tab title="Split roles (production)">
+    Each role runs as its own process/container, communicating over **Kafka**
+    (`market-events`, partitioned by `marketID`) and **gRPC** (gateway → engine).
+    Roles scale and restart independently. Gateways sit behind a sticky-session
+    load balancer for WebSocket affinity.
+  </Tab>
+</Tabs>
+
+## The order path
+
+<Steps>
+  <Step title="Client submits an order">
+    Over REST (`POST /v1/orders`) or WebSocket (`place_order`). The gateway
+    **normalizes** it — validates the side/TIF/type, parses decimals at the
+    market's precision, and generates the `OrderID` server-side (never from the
+    client).
+  </Step>
+  <Step title="Pre-order hook reserves credits">
+    Before the order reaches the book, the engine's hook checks and reserves the
+    user's virtual credits (buys) or validates their position (sells). A failed
+    check rejects the order. See the [wallet model](/docs/concepts/wallet-model).
+  </Step>
+  <Step title="Engine matches and emits events">
+    The in-memory book matches with price-time priority and emits a
+    sequence-numbered event stream (accepted, rested, fills, depth updates, …).
+  </Step>
+  <Step title="Workers project the events">
+    The publisher writes events to the bus. Settlement moves credits, portfolio
+    updates positions, leaderboard updates rankings, and feed pushes everything
+    to subscribed WebSocket clients.
+  </Step>
+</Steps>
+
+## Idempotency & exactly-once effect
+
+Each worker tracks the last processed sequence number per market in a
+`worker_offsets` table, **updated in the same Postgres transaction as its
+business write**:
+
+```sql
+BEGIN;
+  -- e.g. UPDATE wallets ...
+  UPDATE worker_offsets SET last_event_seq = $seq
+    WHERE worker_name = $w AND market_id = $m;
+COMMIT;
+```
+
+A crash at any point is safe:
+
+- Crash **before** the Postgres commit → the event replays on restart and is
+  re-applied with the same result.
+- Crash **after** the Postgres commit but before the bus commit → the sequence
+  guard skips the already-applied event.
+
+So settlement and portfolio are **exactly-once in effect**, even though the bus
+only guarantees at-least-once delivery.

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "clob-server",
+  "description": "A self-hostable paper-trading platform built on the clob matching engine.",
+  "colors": {
+    "primary": "#16A34A",
+    "light": "#22C55E",
+    "dark": "#15803D"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": [
+          "docs/index",
+          "docs/quickstart"
+        ]
+      },
+      {
+        "group": "Concepts",
+        "pages": [
+          "docs/concepts/architecture",
+          "docs/concepts/wallet-model",
+          "docs/concepts/data-stores"
+        ]
+      },
+      {
+        "group": "Guides",
+        "pages": [
+          "docs/guides/configuration",
+          "docs/guides/authentication",
+          "docs/guides/websocket",
+          "docs/guides/deployment"
+        ]
+      },
+      {
+        "group": "API reference",
+        "pages": [
+          "docs/api-reference/introduction"
+        ]
+      },
+      {
+        "group": "Endpoints",
+        "openapi": "api/openapi.yaml"
+      }
+    ]
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/thorlaidanegg/clob-server"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get started",
+      "href": "https://github.com/thorlaidanegg/clob-server"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/thorlaidanegg/clob-server"
+    }
+  }
+}

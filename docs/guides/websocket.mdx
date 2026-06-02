@@ -1,0 +1,63 @@
+---
+title: "WebSocket"
+description: "One connection for live fills, depth, and inline order commands."
+icon: "plug"
+---
+
+Connect to `ws://host/v1/stream` for a single bidirectional channel: stream
+events out, send order commands in. Every message is a JSON object with a
+`type` field.
+
+## Lifecycle
+
+<Steps>
+  <Step title="Authenticate within 10 seconds">
+    The first message must be `auth`, or the connection is closed.
+
+    ```json
+    {"type": "auth", "apiKey": "clob_live_..."}
+    ```
+
+    On success you receive `{"type":"auth_ok","userID":"..."}` and are
+    auto-subscribed to `orders:{userID}` and `portfolio:{userID}`. On failure:
+    `{"type":"auth_error","message":"..."}` and the connection closes.
+  </Step>
+  <Step title="Subscribe to channels">
+    ```json
+    {"type": "subscribe",   "channel": "depth:BTC-USD"}
+    {"type": "unsubscribe", "channel": "depth:BTC-USD"}
+    ```
+  </Step>
+  <Step title="Place and cancel orders inline">
+    ```json
+    {"type": "place_order", "marketID": "BTC-USD", "side": "bid",
+     "orderType": "limit", "price": "100.00", "qty": "5.00", "tif": "GTC"}
+    {"type": "cancel_order", "orderID": "ord_..."}
+    ```
+
+    Responses: `{"type":"order_accepted","orderID":"ord_...","seqNum":N}` and
+    `{"type":"cancel_accepted","orderID":"ord_..."}`.
+  </Step>
+</Steps>
+
+## Channels
+
+| Channel | Events |
+|---------|--------|
+| `depth:{marketID}` | incremental book changes (`DepthUpdate`) |
+| `trades:{marketID}` | executed trades (`TradeExecuted`) |
+| `orders:{userID}` | your order lifecycle (accepted, rested, canceled, rejected, filled) |
+| `portfolio:{userID}` | fills affecting your positions |
+| `markets` | `MarketHalted`, `MarketResumed` |
+
+<Note>
+  Order placement and cancellation over WebSocket have **identical semantics** to
+  the REST endpoints — they go through the same normalizer and engine. Use
+  whichever transport suits your client.
+</Note>
+
+## Rate limiting
+
+Each connection is limited to `RATE_LIMIT_WS_RPS` messages per second
+(default 50). Exceeding it returns an error message; the connection stays open.
+A connection whose outbound buffer fills (a slow consumer) is disconnected.

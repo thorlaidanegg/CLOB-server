@@ -1,0 +1,59 @@
+---
+title: "Data stores"
+description: "What lives in Postgres, Redis, and Kafka — and why."
+icon: "database"
+---
+
+clob-server uses three stores, each for what it's best at.
+
+## Postgres — durable source of truth
+
+All financial and identity state. Schema is applied by **append-only**
+migrations in `internal/store/postgres/migrations/` (`001`–`009`). Never edit an
+existing migration; add a new one.
+
+| Table | Holds |
+|-------|-------|
+| `wallets` | `available` / `reserved` credits per user (both ≥ 0, CHECK-enforced) |
+| `positions` | quantity, average entry price, realised PnL per user per market |
+| `orders` | order lifecycle + `reserved_per_unit` (drives settlement releases) |
+| `markets` | market config, fee schedule, fee tiers (JSONB), state |
+| `users` | user accounts |
+| `api_keys` | SHA-256 key hash, scopes, tier, rate limit, expiry |
+| `trades` | executed trades (feeds the leaderboard and 30-day fee-volume cache) |
+| `worker_offsets` | last processed event sequence per worker per market (idempotency) |
+
+## Redis — fast, rebuildable cache
+
+Nothing here is a source of truth; it can all be rebuilt from Postgres/Kafka.
+
+| Key | Purpose | TTL |
+|-----|---------|-----|
+| `apikey:{hash}` | Cached auth result (userID, scopes, tier, rate limit) | 60s |
+| `ratelimit:{userID}:{minute}` | Per-user REST rate-limit counter | ~2 min |
+| `bbo:{marketID}` | Best bid/offer cache | short |
+| `lastprice:{marketID}` | Last trade price (for unrealised PnL) | none |
+| `leaderboard` / `leaderboard:{marketID}` | Sorted sets of realised PnL | none |
+
+## Kafka — the event log
+
+The `market-events` topic, **partitioned by `marketID`**, carries every event
+the engine emits, in order, between the engine and the workers. Per-market
+ordering is guaranteed by the partition key.
+
+<Note>
+  In `ROLE=all`, Kafka is replaced by an in-memory fan-out bus — so single-process
+  deployments need **only Postgres and Redis**. The worker code is identical
+  either way; only the bus implementation changes.
+</Note>
+
+## Money representation
+
+Across all three stores and the wire, money is **fixed-point**, never `float64`:
+
+- **Go:** `types.Decimal` (integer mantissa + precision)
+- **Postgres:** `BIGINT` columns at the market's precision
+- **JSON / gRPC:** decimal **strings** (e.g. `"100.00"`)
+
+A value's precision is carried with it, so `"100.00"` and `"0.00000001"`
+round-trip exactly.
