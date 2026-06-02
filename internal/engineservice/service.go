@@ -36,7 +36,8 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 
 	walletStore := wallet.NewPgStore(pool, 2)
 	orderStore := ordersstore.NewPgStore(pool)
-	hook := NewPostgresWalletHook(walletStore, orderStore, rdb, log)
+	positions := NewPgPositionReader(pool)
+	hook := NewPostgresWalletHook(walletStore, orderStore, positions, rdb, log)
 
 	marketCfgs, err := LoadMarkets(ctx, pool)
 	if err != nil {

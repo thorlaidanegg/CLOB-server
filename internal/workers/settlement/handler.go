@@ -75,38 +75,26 @@ func (h *Handler) handleTradeExecuted(ctx context.Context, tx pgx.Tx, ev *events
 	})
 }
 
+// handleTradeFill settles a fill by side, never by maker/taker role
+// (see doc/WALLET_MODEL.md). A buyer consumes their reservation and pays the
+// actual cost; a seller receives the sale proceeds.
 func (h *Handler) handleTradeFill(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
+	if fill.Side == types.Bid {
+		return h.settleBuyer(ctx, tx, fill)
+	}
+	return h.settleSeller(ctx, tx, fill)
+}
+
+// settleBuyer releases the exact hook reservation and deducts the real cost
+// atomically. Identical for maker and taker buyers — the only difference, the
+// fee, is already in fill.Fee.
+func (h *Handler) settleBuyer(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
 	userID := string(fill.UserID)
 
-	if fill.Role == events.RoleMaker {
-		// Maker: release reserved amount and credit net received.
-		released := fill.Price.Mul(fill.FilledQty)
-		netReceived := released.Sub(fill.Fee)
-
-		tag, err := tx.Exec(ctx,
-			`UPDATE wallets SET
-			   reserved   = reserved   - $2,
-			   available  = available  + $3,
-			   version    = version    + 1,
-			   updated_at = now()
-			 WHERE user_id=$1 AND reserved >= $2`,
-			userID, released.Value(), netReceived.Value(),
-		)
-		if err != nil {
-			return fmt.Errorf("settlement: maker wallet update: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
-			h.logger.Error().Str("userID", userID).Msg("settlement: maker wallet anomaly — insufficient reserved")
-		}
-		return nil
-	}
-
-	// Taker: release exact hook reservation and deduct actual cost atomically.
 	order, err := h.orderStore.GetOrder(ctx, string(fill.OrderID))
 	if err != nil {
-		return fmt.Errorf("settlement: get taker order: %w", err)
+		return fmt.Errorf("settlement: get buyer order: %w", err)
 	}
-
 	market, err := pgstore.GetMarket(ctx, h.pool, string(fill.MarketID()))
 	if err != nil {
 		return fmt.Errorf("settlement: get market: %w", err)
@@ -126,10 +114,33 @@ func (h *Handler) handleTradeFill(ctx context.Context, tx pgx.Tx, fill *events.T
 		userID, reservationForFill.Value(), cost.Value(),
 	)
 	if err != nil {
-		return fmt.Errorf("settlement: taker wallet update: %w", err)
+		return fmt.Errorf("settlement: buyer wallet update: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		h.logger.Error().Str("userID", userID).Msg("settlement: taker wallet anomaly — insufficient reserved")
+		h.logger.Error().Str("userID", userID).Msg("settlement: buyer wallet anomaly — insufficient reserved")
+	}
+	return nil
+}
+
+// settleSeller credits the sale proceeds. Sellers reserved no credits (long-only),
+// so reserved is untouched.
+func (h *Handler) settleSeller(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
+	userID := string(fill.UserID)
+	proceeds := fill.Price.Mul(fill.FilledQty).Sub(fill.Fee)
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE wallets SET
+		   available  = available + $2,
+		   version    = version   + 1,
+		   updated_at = now()
+		 WHERE user_id=$1`,
+		userID, proceeds.Value(),
+	)
+	if err != nil {
+		return fmt.Errorf("settlement: seller wallet update: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		h.logger.Error().Str("userID", userID).Msg("settlement: seller wallet anomaly — wallet missing")
 	}
 	return nil
 }
@@ -140,33 +151,28 @@ func (h *Handler) handleOrderCanceled(ctx context.Context, tx pgx.Tx, ev *events
 		return fmt.Errorf("settlement: get canceled order: %w", err)
 	}
 
-	market, err := pgstore.GetMarket(ctx, h.pool, string(ev.MarketID()))
-	if err != nil {
-		return fmt.Errorf("settlement: get market for cancel: %w", err)
-	}
-
-	qty := types.NewDecimal(order.RemainQty, market.QtyPrecision)
-	var release types.Decimal
-
+	// Only buys reserved credits (reserved_per_unit > 0). Sells reserved nothing,
+	// so there is nothing to release — never fall back to price × qty for a sell.
 	if order.ReservedPerUnit > 0 {
+		market, err := pgstore.GetMarket(ctx, h.pool, string(ev.MarketID()))
+		if err != nil {
+			return fmt.Errorf("settlement: get market for cancel: %w", err)
+		}
+		qty := types.NewDecimal(order.RemainQty, market.QtyPrecision)
 		reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
-		release = reservedPerUnit.Mul(qty)
-	} else {
-		price := types.NewDecimal(order.Price, market.PricePrecision)
-		release = price.Mul(qty)
-	}
+		release := reservedPerUnit.Mul(qty)
 
-	// Release reservation and update order status within the same transaction.
-	if _, err := tx.Exec(ctx,
-		`UPDATE wallets SET
-		   reserved  = reserved  - $2,
-		   available = available + $2,
-		   version   = version   + 1,
-		   updated_at = now()
-		 WHERE user_id=$1`,
-		order.UserID, release.Value(),
-	); err != nil {
-		return fmt.Errorf("settlement: cancel wallet release: %w", err)
+		if _, err := tx.Exec(ctx,
+			`UPDATE wallets SET
+			   reserved  = reserved  - $2,
+			   available = available + $2,
+			   version   = version   + 1,
+			   updated_at = now()
+			 WHERE user_id=$1`,
+			order.UserID, release.Value(),
+		); err != nil {
+			return fmt.Errorf("settlement: cancel wallet release: %w", err)
+		}
 	}
 
 	if _, err := tx.Exec(ctx,

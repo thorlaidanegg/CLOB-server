@@ -88,19 +88,16 @@ func cancelOrderTx(ctx context.Context, pool *pgxpool.Pool, o openOrderRow, pp, 
 	}
 	defer tx.Rollback(ctx)
 
-	// Compute how much to release.
-	// Use reserved_per_unit when set (covers market orders with BBO estimate).
-	// Fall back to limit price × remain_qty for limit orders.
+	// Release only what the hook reserved. Only buys reserve credits
+	// (reserved_per_unit > 0); sells reserved nothing, so they release nothing —
+	// never fall back to price × qty (that would wrongly refund a seller).
+	// See doc/WALLET_MODEL.md §4.
 	var releaseRaw int64
-	qty := types.NewDecimal(o.RemainQty, qp)
 	if o.ReservedPerUnit > 0 {
+		qty := types.NewDecimal(o.RemainQty, qp)
 		reservedPerUnit := types.NewDecimal(o.ReservedPerUnit, pp)
 		releaseRaw = reservedPerUnit.Mul(qty).Value()
-	} else if o.Price > 0 {
-		price := types.NewDecimal(o.Price, pp)
-		releaseRaw = price.Mul(qty).Value()
 	}
-	// If both are zero this was a market order with no BBO — nothing was reserved.
 
 	if releaseRaw > 0 {
 		if _, err := tx.Exec(ctx,

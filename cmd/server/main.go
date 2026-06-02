@@ -80,7 +80,8 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 
 	walletStore := wallet.NewPgStore(pool, 2)
 	orderStore := ordersstore.NewPgStore(pool)
-	hook := engineservice.NewPostgresWalletHook(walletStore, orderStore, rdb, log)
+	positions := engineservice.NewPgPositionReader(pool)
+	hook := engineservice.NewPostgresWalletHook(walletStore, orderStore, positions, rdb, log)
 
 	// V1 restart recovery: cancel open orders before accepting new commands.
 	engineservice.RecoverOpenOrders(ctx, pool, marketCfgs, log)

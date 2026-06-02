@@ -112,7 +112,8 @@ func (s *Server) Start() error {
 	orderStore := ordersstore.NewPgStore(pool)
 
 	// Default hook if none set per-market.
-	defaultHook := engineservice.NewPostgresWalletHook(walletStore, orderStore, rdb, s.log)
+	positions := engineservice.NewPgPositionReader(pool)
+	defaultHook := engineservice.NewPostgresWalletHook(walletStore, orderStore, positions, rdb, s.log)
 
 	// Volume cache backs tiered fee markets; refreshed every minute.
 	volumeCache := engineservice.NewVolumeCache(pool, s.cfg.Markets, s.log)

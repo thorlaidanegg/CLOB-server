@@ -53,7 +53,8 @@ func runEvent(t *testing.T, pool *pgxpool.Pool, h *settlement.Handler, env worke
 
 func d2(s string) types.Decimal { return types.MustDecimal(s, 2) }
 
-func TestSettlement_TakerReleasesReservationAndDeductsCost(t *testing.T) {
+// Taker buyer with a market order: the 2× BBO buffer excess is returned.
+func TestSettlement_TakerBuyerReleasesReservationAndDeductsCost(t *testing.T) {
 	pool := testsupport.RequirePostgres(t)
 	h, w, orders := seed(t, pool)
 	ctx := context.Background()
@@ -69,63 +70,104 @@ func TestSettlement_TakerReleasesReservationAndDeductsCost(t *testing.T) {
 	})
 	orders.UpdateReservedPerUnit(ctx, "ord_taker", d2("200.00").Value())
 
-	// Fill: 5.00 @ 100.00, no fee.
 	fill := &events.TradeFill{
 		Base:      events.NewBase(1, time.Now().UnixNano(), mkt),
-		OrderID:   "ord_taker",
-		UserID:    "taker",
-		Role:      events.RoleTaker,
-		Side:      types.Bid,
-		Price:     d2("100.00"),
-		FilledQty: d2("5.00"),
-		Fee:       d2("0.00"),
+		OrderID:   "ord_taker", UserID: "taker", Role: events.RoleTaker, Side: types.Bid,
+		Price: d2("100.00"), FilledQty: d2("5.00"), Fee: d2("0.00"),
 	}
 	runEvent(t, pool, h, workers.EventEnvelope{
 		Event: fill, EventType: events.TypeTradeFill, MarketID: mkt, SeqNum: 1,
 	})
 
-	// reservationForFill = 200.00 * 5.00 = 1000.00 released from reserved.
-	// cost = 100.00 * 5.00 = 500.00 deducted.
-	// available = 0 + 1000.00 - 500.00 = 500.00; reserved = 0.
-	wr, _ := pgstore.GetWallet(ctx, pool, "taker")
-	if types.NewDecimal(wr.Available, 2).String() != "500.00" {
-		t.Errorf("taker available = %s, want 500.00 (2x buffer excess returned)", types.NewDecimal(wr.Available, 2))
-	}
-	if types.NewDecimal(wr.Reserved, 2).String() != "0.00" {
-		t.Errorf("taker reserved = %s, want 0.00", types.NewDecimal(wr.Reserved, 2))
-	}
+	// reservationForFill = 200.00 × 5.00 = 1000.00 released; cost = 500.00 deducted.
+	// available = 0 + 1000.00 − 500.00 = 500.00; reserved = 0.
+	assertWallet(t, ctx, pool, "taker", "500.00", "0.00")
 }
 
-func TestSettlement_MakerReleasesReservedCreditsNet(t *testing.T) {
+// Maker buyer fills at their own resting price: they pay the full cost, no refund.
+// This is the regression guard for the old bug that refunded resting buyers.
+func TestSettlement_MakerBuyerPaysFullCost(t *testing.T) {
+	pool := testsupport.RequirePostgres(t)
+	h, w, orders := seed(t, pool)
+	ctx := context.Background()
+
+	// Resting bid at 100.00 for 5.00 → reserved 500.00, reserved_per_unit 100.00.
+	w.Credit(ctx, "buyer", d2("500.00"))
+	w.Reserve(ctx, "buyer", d2("500.00"))
+	orders.InsertOrder(ctx, ordersstore.OrderRow{
+		OrderID: "ord_mb", UserID: "buyer", MarketID: mkt,
+		Side: "bid", OrderType: "limit", Price: d2("100.00").Value(),
+		OrigQty: 500, RemainQty: 500, Status: "rested", TIF: "GTC",
+	})
+	orders.UpdateReservedPerUnit(ctx, "ord_mb", d2("100.00").Value())
+
+	fill := &events.TradeFill{
+		Base:      events.NewBase(1, time.Now().UnixNano(), mkt),
+		OrderID:   "ord_mb", UserID: "buyer", Role: events.RoleMaker, Side: types.Bid,
+		Price: d2("100.00"), FilledQty: d2("5.00"), Fee: d2("0.00"),
+	}
+	runEvent(t, pool, h, workers.EventEnvelope{
+		Event: fill, EventType: events.TypeTradeFill, MarketID: mkt, SeqNum: 1,
+	})
+
+	// reservationForFill = 500.00 released; cost = 500.00 deducted.
+	// available = 0 + 500.00 − 500.00 = 0; reserved = 0. The buyer paid the full 500.00.
+	assertWallet(t, ctx, pool, "buyer", "0.00", "0.00")
+}
+
+// Seller receives proceeds and never touches reserved.
+func TestSettlement_SellerReceivesProceeds(t *testing.T) {
 	pool := testsupport.RequirePostgres(t)
 	h, w, _ := seed(t, pool)
 	ctx := context.Background()
 
-	// Maker had 500.00 reserved against a resting order.
-	w.Credit(ctx, "maker", d2("500.00"))
-	w.Reserve(ctx, "maker", d2("500.00"))
+	// Seller starts with an empty wallet (created via a zero credit).
+	w.Credit(ctx, "seller", d2("0.00"))
 
-	// Fill 5.00 @ 100.00, fee 0. Mechanically: reserved -= 500.00, available += 500.00.
 	fill := &events.TradeFill{
 		Base:      events.NewBase(1, time.Now().UnixNano(), mkt),
-		OrderID:   "ord_maker",
-		UserID:    "maker",
-		Role:      events.RoleMaker,
-		Side:      types.Bid,
-		Price:     d2("100.00"),
-		FilledQty: d2("5.00"),
-		Fee:       d2("0.00"),
+		OrderID:   "ord_sell", UserID: "seller", Role: events.RoleMaker, Side: types.Ask,
+		Price: d2("100.00"), FilledQty: d2("5.00"), Fee: d2("0.00"),
 	}
 	runEvent(t, pool, h, workers.EventEnvelope{
 		Event: fill, EventType: events.TypeTradeFill, MarketID: mkt, SeqNum: 1,
 	})
 
-	wr, _ := pgstore.GetWallet(ctx, pool, "maker")
-	if types.NewDecimal(wr.Reserved, 2).String() != "0.00" {
-		t.Errorf("maker reserved = %s, want 0.00", types.NewDecimal(wr.Reserved, 2))
+	// proceeds = 100.00 × 5.00 = 500.00 credited to available; reserved untouched.
+	assertWallet(t, ctx, pool, "seller", "500.00", "0.00")
+}
+
+// Fee is deducted from the seller's proceeds.
+func TestSettlement_SellerProceedsNetOfFee(t *testing.T) {
+	pool := testsupport.RequirePostgres(t)
+	h, w, _ := seed(t, pool)
+	ctx := context.Background()
+
+	w.Credit(ctx, "seller", d2("0.00"))
+	fill := &events.TradeFill{
+		Base:      events.NewBase(1, time.Now().UnixNano(), mkt),
+		OrderID:   "ord_sf", UserID: "seller", Role: events.RoleTaker, Side: types.Ask,
+		Price: d2("100.00"), FilledQty: d2("5.00"), Fee: d2("1.50"),
 	}
-	if types.NewDecimal(wr.Available, 2).String() != "500.00" {
-		t.Errorf("maker available = %s, want 500.00", types.NewDecimal(wr.Available, 2))
+	runEvent(t, pool, h, workers.EventEnvelope{
+		Event: fill, EventType: events.TypeTradeFill, MarketID: mkt, SeqNum: 1,
+	})
+
+	// proceeds = 500.00 − 1.50 = 498.50.
+	assertWallet(t, ctx, pool, "seller", "498.50", "0.00")
+}
+
+func assertWallet(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID, wantAvail, wantReserved string) {
+	t.Helper()
+	wr, err := pgstore.GetWallet(ctx, pool, userID)
+	if err != nil {
+		t.Fatalf("get wallet %s: %v", userID, err)
+	}
+	if got := types.NewDecimal(wr.Available, 2).String(); got != wantAvail {
+		t.Errorf("%s available = %s, want %s", userID, got, wantAvail)
+	}
+	if got := types.NewDecimal(wr.Reserved, 2).String(); got != wantReserved {
+		t.Errorf("%s reserved = %s, want %s", userID, got, wantReserved)
 	}
 }
 
@@ -163,6 +205,41 @@ func TestSettlement_OrderCanceledReleasesAndMarksCanceled(t *testing.T) {
 		t.Errorf("reserved after cancel = %s, want 0.00", types.NewDecimal(wr.Reserved, 2))
 	}
 	o, _ := orders.GetOrder(ctx, "ord_cancel")
+	if o.Status != "canceled" {
+		t.Errorf("order status = %q, want canceled", o.Status)
+	}
+}
+
+// Canceling a sell (reserved_per_unit = 0) releases no credits — the seller never
+// reserved any. Guards against the removed price×qty fallback wrongly refunding.
+func TestSettlement_SellCancelReleasesNothing(t *testing.T) {
+	pool := testsupport.RequirePostgres(t)
+	h, w, orders := seed(t, pool)
+	ctx := context.Background()
+
+	// Seller holds 300.00 available, nothing reserved.
+	w.Credit(ctx, "seller", d2("300.00"))
+
+	orders.InsertOrder(ctx, ordersstore.OrderRow{
+		OrderID: "ord_sellcancel", UserID: "seller", MarketID: mkt,
+		Side: "ask", OrderType: "limit", Price: d2("100.00").Value(),
+		OrigQty: 500, RemainQty: 500, Status: "rested", TIF: "GTC",
+		// reserved_per_unit defaults to 0 for sells
+	})
+
+	ev := &events.OrderCanceled{
+		Base:        events.NewBase(1, time.Now().UnixNano(), mkt),
+		OrderID:     "ord_sellcancel",
+		UserID:      "seller",
+		CanceledQty: d2("5.00"),
+	}
+	runEvent(t, pool, h, workers.EventEnvelope{
+		Event: ev, EventType: events.TypeOrderCanceled, MarketID: mkt, SeqNum: 1,
+	})
+
+	// Wallet unchanged; order marked canceled.
+	assertWallet(t, ctx, pool, "seller", "300.00", "0.00")
+	o, _ := orders.GetOrder(ctx, "ord_sellcancel")
 	if o.Status != "canceled" {
 		t.Errorf("order status = %q, want canceled", o.Status)
 	}
