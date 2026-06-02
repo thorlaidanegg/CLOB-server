@@ -28,13 +28,34 @@ Authorization: Bearer clob_live_xxxxxxxxxxxxxxxxxxxx
 Keys are `prefix + base58(32 random bytes)`. The server stores only
 `sha256(key)` — the **full key is shown once at creation** and never again.
 
+## Bootstrapping the first key
+
+There is no public signup. Your **first** key is the value you set in
+`ADMIN_BOOTSTRAP_KEY` — on first startup the gateway seeds it as an admin key
+(user `bootstrap`, scope `admin:all`). The literal env value *is* the bearer
+token:
+
+```
+ADMIN_BOOTSTRAP_KEY=clob_admin_devbootstrapkeylocal
+# → Authorization: Bearer clob_admin_devbootstrapkeylocal
+```
+
+<Info>
+  **Per-user provisioning is a frontend concern (planned).** `POST /v1/apikeys`
+  mints a key only for the **authenticated caller**, and there is currently no
+  backend endpoint to issue a key on behalf of another user. End-user signup /
+  login and per-user key issuance are intended to live in a frontend, backed by
+  the existing `users` table. Until then, provision additional users' keys by
+  inserting their `api_keys` rows directly.
+</Info>
+
 ## Manage your keys
 
 <CodeGroup>
 ```bash Create
 curl -X POST localhost:8080/v1/apikeys -H "Authorization: Bearer $KEY" \
   -d '{"name":"my bot"}'
-# → {"fullKey":"clob_live_...","keyPrefix":"clob_live_..."}
+# → mints a key for the caller's user; returned once
 ```
 
 ```bash List

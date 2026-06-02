@@ -1,0 +1,144 @@
+---
+title: "MCP server"
+description: "Let AI agents (Claude, Cursor, …) call the clob-server API as tools via the Model Context Protocol."
+icon: "bot"
+---
+
+The [Model Context Protocol](https://modelcontextprotocol.io) (MCP) lets AI tools
+discover and call external APIs. Because clob-server ships an
+[OpenAPI spec](https://github.com/thorlaidanegg/clob-server/blob/main/api/openapi.yaml),
+you can expose its REST API to an AI agent as MCP **tools** — "place an order",
+"get my portfolio", "show the order book" — without writing any glue code.
+
+<Note>
+  The MCP server exposes the **REST** surface only (orders, markets, portfolio,
+  leaderboard, API keys, admin). The real-time **WebSocket** stream is not an MCP
+  tool — agents read state by calling `GET` endpoints.
+</Note>
+
+There are two ways to run it. Both are generated from the same OpenAPI spec, so
+the tool list stays in sync with the API.
+
+## Option A — Hosted MCP (a URL, no process)
+
+When your [Mintlify docs](https://www.mintlify.com/blog/generate-mcp-servers-for-your-docs)
+are deployed, Mintlify serves an MCP endpoint generated from your OpenAPI at:
+
+```
+https://<your-subdomain>.mintlify.app/mcp
+```
+
+It gives agents both documentation search and API tool-calls. Add it to your AI
+client:
+
+<CodeGroup>
+```json Cursor (.cursor/mcp.json)
+{
+  "mcpServers": {
+    "clob-server": {
+      "url": "https://<your-subdomain>.mintlify.app/mcp"
+    }
+  }
+}
+```
+
+```json Claude Desktop (claude_desktop_config.json)
+{
+  "mcpServers": {
+    "clob-server": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://<your-subdomain>.mintlify.app/mcp"]
+    }
+  }
+}
+```
+</CodeGroup>
+
+Claude Desktop reaches remote servers through the `mcp-remote` bridge; Cursor
+supports a remote `url` directly. Replace `<your-subdomain>` with your real docs
+domain.
+
+## Option B — Local MCP server (talks straight to your API)
+
+Run a small MCP server next to your clob-server — useful for local development or
+when you don't want calls routed through hosted docs.
+
+<Steps>
+  <Step title="Generate the server from the spec">
+    In the Mintlify dashboard, go to **Products → MCP Server** to copy your
+    project's install command (it generates a Node MCP server from
+    `api/openapi.yaml`). Any OpenAPI→MCP generator works too.
+  </Step>
+  <Step title="Point it at your clob-server">
+    The base URL comes from the spec's `servers` field
+    (`http://localhost:8080`). Override it for a deployed instance, and provide
+    an API key for authenticated calls.
+  </Step>
+  <Step title="Register it with your AI client">
+    ```json claude_desktop_config.json
+    {
+      "mcpServers": {
+        "clob-server": {
+          "command": "npx",
+          "args": ["-y", "<your-generated-mcp-package>"],
+          "env": {
+            "BASE_URL": "http://localhost:8080",
+            "API_KEY": "clob_live_..."
+          }
+        }
+      }
+    }
+    ```
+    Replace the package name with the command from the dashboard. Config lives in
+    `claude_desktop_config.json` (Claude Desktop) or `.cursor/mcp.json` (Cursor).
+  </Step>
+</Steps>
+
+## Authentication
+
+Every non-public endpoint needs a bearer key (see
+[Authentication](/docs/guides/authentication)). How the key is supplied depends
+on the path:
+
+- **Hosted MCP:** your AI client prompts for the bearer token (the OpenAPI
+  `BearerAuth` scheme). Paste a `clob_live_...` key.
+- **Local MCP:** pass the key via the server's config (e.g. an `API_KEY` env var,
+  as above).
+
+Public tools (markets, depth, trades, leaderboard) work with no key.
+
+## Safety for a trading API
+
+An AI agent with a key can move (virtual) credits — `place_order` and
+`cancel_order` are state-changing. Treat the key like a trading credential.
+
+<Warning>
+  **Scopes do not restrict trading today.** Only `/admin` routes enforce a scope
+  (`admin:all`); every other `/v1` endpoint accepts any valid key, so a key with
+  only "read" scopes can still place orders. Do **not** rely on a read-only key
+  to keep an agent from trading.
+</Warning>
+
+Recommended guardrails:
+
+- Give agents a **dedicated, low-credit user** — never the admin/bootstrap key.
+- Keep `admin:all` keys away from agents entirely (those *are* scope-gated and
+  can create markets, grant credits, and force-cancel orders).
+- Prefer agent workflows that **read** (`GET /v1/portfolio`,
+  `/v1/markets/{id}/depth`, `/v1/leaderboard`) and only enable order tools when
+  you intend the agent to trade.
+
+## What the agent can do
+
+| Capability | Tool (endpoint) |
+|------------|-----------------|
+| Place an order | `POST /v1/orders` |
+| Cancel an order | `DELETE /v1/orders/{id}` |
+| List / inspect orders | `GET /v1/orders`, `GET /v1/orders/{id}` |
+| Read the book / recent trades | `GET /v1/markets/{id}/depth`, `/trades` |
+| Read portfolio & PnL | `GET /v1/portfolio` |
+| Read the leaderboard | `GET /v1/leaderboard` |
+| List markets | `GET /v1/markets`, `GET /v1/markets/{id}` |
+
+Admin tools (create markets, grant credits, force-cancel) are also exposed but
+require an `admin:all` key — keep those out of agent configs.

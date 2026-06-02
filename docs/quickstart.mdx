@@ -67,13 +67,12 @@ curl -X POST localhost:8080/v1/admin/users/bob/credits -H "Authorization: Bearer
 
 ## 4. Issue API keys
 
-Each user trades with their own key. Generate one with an authenticated call
-(here the admin key acts on behalf of the platform; in a real deployment each
-user creates their own key after signing in).
+Each user trades with their own bearer key. `POST /v1/apikeys` mints a key for
+**the caller** (the user whose key authenticated the request):
 
 ```bash
-curl -X POST localhost:8080/v1/apikeys -H "Authorization: Bearer $ADMIN" \
-  -d '{"name":"alice cli"}'
+curl -X POST localhost:8080/v1/apikeys -H "Authorization: Bearer $KEY" \
+  -d '{"name":"my key"}'
 # → {"fullKey":"clob_live_...","keyPrefix":"clob_live_..."}
 ```
 
@@ -82,7 +81,21 @@ curl -X POST localhost:8080/v1/apikeys -H "Authorization: Bearer $ADMIN" \
   if lost, revoke it and generate a new one.
 </Warning>
 
+<Note>
+  **Provisioning keys for end users (current state).** The only built-in entry
+  point is the bootstrap admin key, and `POST /v1/apikeys` mints a key only for
+  the caller — there is **no backend endpoint to issue a key for another user**
+  and no public signup yet. End-user **signup / login and per-user key issuance
+  are intended to live in a frontend** (the `users` table already exists to back
+  it). Until that frontend lands, the simplest way to give `alice` and `bob`
+  their own keys is to insert their `api_keys` rows directly, or run them with
+  the bootstrap key for a single-identity smoke test. See
+  [Authentication](/docs/guides/authentication) for the full model.
+</Note>
+
 ## 5. Place crossing orders
+
+Assuming `alice` and `bob` each have a key (see the note above):
 
 ```bash
 ALICE="clob_live_..."   # alice's key
