@@ -152,16 +152,82 @@ func (w *WorkerRunner) Run(ctx context.Context) {
 			Offset:    msg.Offset,
 		}
 
-		// Run handler and offset update in a single transaction.
-		if err := w.runTransaction(ctx, env); err != nil {
-			w.logger.Error().Err(err).Str("type", eventType).Uint64("seq", seqNum).Msg("worker: transaction failed")
+		// Run handler + offset update in a single transaction, retrying transient
+		// failures. A persistent failure is dead-lettered so one poison event can't
+		// block the whole stream.
+		if err := w.runWithRetry(ctx, env); err != nil {
+			w.logger.Error().Err(err).Str("type", eventType).Uint64("seq", seqNum).
+				Msg("worker: event failed after retries — dead-lettering")
 			metrics.WorkerEventErrorsTotal.WithLabelValues(w.workerName).Inc()
-			continue
+			w.deadLetter(env, err)
+		} else {
+			metrics.WorkerEventsTotal.WithLabelValues(w.workerName, eventType).Inc()
 		}
 
-		metrics.WorkerEventsTotal.WithLabelValues(w.workerName, eventType).Inc()
 		w.lastSeqs[marketID] = seqNum
 		w.consumer.Commit(ctx, msg)
+	}
+}
+
+const (
+	maxAttempts  = 3
+	retryBackoff = 100 * time.Millisecond
+)
+
+// runWithRetry runs the handler transaction, retrying with linear backoff on
+// failure up to maxAttempts. Stops early if the context is canceled.
+func (w *WorkerRunner) runWithRetry(ctx context.Context, env EventEnvelope) error {
+	var err error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		if err = w.runTransaction(ctx, env); err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		if attempt < maxAttempts {
+			select {
+			case <-time.After(retryBackoff * time.Duration(attempt)):
+			case <-ctx.Done():
+				return err
+			}
+		}
+	}
+	return err
+}
+
+// deadLetter records a poison event and advances the worker offset in one
+// transaction, so the offset table stays consistent with the committed bus
+// offset while preserving the failed event for inspection/replay. Uses a fresh
+// context so it still runs during shutdown.
+func (w *WorkerRunner) deadLetter(env EventEnvelope, cause error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	tx, err := w.pool.Begin(ctx)
+	if err != nil {
+		w.logger.Error().Err(err).Str("worker", w.workerName).Msg("worker: dead-letter begin failed")
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	if err := pgstore.InsertDeadLetterTx(ctx, tx, pgstore.DeadLetterRow{
+		WorkerName: w.workerName,
+		MarketID:   env.MarketID,
+		SeqNum:     env.SeqNum,
+		EventType:  env.EventType,
+		Payload:    env.Raw,
+		Error:      cause.Error(),
+	}); err != nil {
+		w.logger.Error().Err(err).Str("worker", w.workerName).Msg("worker: dead-letter insert failed")
+		return
+	}
+	if err := pgstore.UpsertWorkerOffsetTx(ctx, tx, w.workerName, env.MarketID, env.SeqNum, env.Partition, env.Offset); err != nil {
+		w.logger.Error().Err(err).Str("worker", w.workerName).Msg("worker: dead-letter offset update failed")
+		return
+	}
+	if err := tx.Commit(ctx); err != nil {
+		w.logger.Error().Err(err).Str("worker", w.workerName).Msg("worker: dead-letter commit failed")
 	}
 }
 

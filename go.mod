@@ -10,7 +10,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/rs/zerolog v1.33.0
-	github.com/thorlaidanegg/clob v0.5.0
+	github.com/thorlaidanegg/clob v0.6.0
 	github.com/twmb/franz-go v1.21.2
 	google.golang.org/grpc v1.65.0
 	google.golang.org/protobuf v1.36.11

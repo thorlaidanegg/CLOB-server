@@ -41,13 +41,12 @@ func RequirePostgres(t *testing.T) *pgxpool.Pool {
 	if err != nil {
 		t.Fatalf("testsupport: connect: %v", err)
 	}
-	if err := pgstore.RunMigrations(ctx, pool); err != nil {
-		t.Fatalf("testsupport: migrations: %v", err)
-	}
 
 	// Hold a session-scoped advisory lock on a dedicated connection for the whole
-	// test. Other integration tests block here until this one finishes, giving each
-	// test exclusive use of the database. pg_advisory_lock blocks rather than fails.
+	// test, acquired BEFORE migrations. Other integration tests block here until
+	// this one finishes, giving each test exclusive use of the database — this
+	// also serializes the migration runner so concurrent CREATE TABLE statements
+	// across packages don't race. pg_advisory_lock blocks rather than fails.
 	lockConn, err := pool.Acquire(context.Background())
 	if err != nil {
 		t.Fatalf("testsupport: acquire lock conn: %v", err)
@@ -55,6 +54,11 @@ func RequirePostgres(t *testing.T) *pgxpool.Pool {
 	if _, err := lockConn.Exec(context.Background(), "SELECT pg_advisory_lock($1)", lockID); err != nil {
 		lockConn.Release()
 		t.Fatalf("testsupport: advisory lock: %v", err)
+	}
+
+	if err := pgstore.RunMigrations(ctx, pool); err != nil {
+		lockConn.Release()
+		t.Fatalf("testsupport: migrations: %v", err)
 	}
 
 	TruncateAll(t, pool)
@@ -73,7 +77,8 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_, err := pool.Exec(ctx,
-		`TRUNCATE wallets, positions, orders, markets, users, api_keys, worker_offsets, trades CASCADE`)
+		`TRUNCATE wallets, positions, orders, markets, users, api_keys,
+		          worker_offsets, trades, dead_letter_events CASCADE`)
 	if err != nil {
 		t.Fatalf("testsupport: truncate: %v", err)
 	}

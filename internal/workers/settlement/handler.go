@@ -75,14 +75,37 @@ func (h *Handler) handleTradeExecuted(ctx context.Context, tx pgx.Tx, ev *events
 	})
 }
 
-// handleTradeFill settles a fill by side, never by maker/taker role
-// (see doc/WALLET_MODEL.md). A buyer consumes their reservation and pays the
+// handleTradeFill records fill progress on the order and settles credits.
+// Credit movement branches by side, never by maker/taker role
+// (see doc/WALLET_MODEL.md): a buyer consumes their reservation and pays the
 // actual cost; a seller receives the sale proceeds.
 func (h *Handler) handleTradeFill(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
+	if err := h.updateOrderFill(ctx, tx, fill); err != nil {
+		return err
+	}
 	if fill.Side == types.Bid {
 		return h.settleBuyer(ctx, tx, fill)
 	}
 	return h.settleSeller(ctx, tx, fill)
+}
+
+// updateOrderFill advances the order's fill progress and status. The event's
+// RemainQty is absolute, so filled_qty/remain_qty/status are set (not
+// incremented) — safe to re-apply if the event is ever reprocessed.
+func (h *Handler) updateOrderFill(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
+	_, err := tx.Exec(ctx,
+		`UPDATE orders SET
+		   remain_qty = $2,
+		   filled_qty = orig_qty - $2,
+		   status     = CASE WHEN $2 = 0 THEN 'filled' ELSE 'partial' END,
+		   updated_at = now()
+		 WHERE order_id = $1`,
+		string(fill.OrderID), fill.RemainQty.Value(),
+	)
+	if err != nil {
+		return fmt.Errorf("settlement: update order fill: %w", err)
+	}
+	return nil
 }
 
 // settleBuyer releases the exact hook reservation and deducts the real cost

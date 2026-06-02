@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/thorlaidanegg/clob-server/internal/shared/apierrors"
+	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 	enginev1 "github.com/thorlaidanegg/clob-server/proto/engine/v1"
 	"github.com/thorlaidanegg/clob/events"
 	"github.com/thorlaidanegg/clob/types"
@@ -14,16 +16,34 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
+// retryServiceConfig retries transient "Unavailable" RPCs up to 3 times with
+// exponential backoff (applied by gRPC itself), per SERVER_LLD §5.
+const retryServiceConfig = `{
+  "methodConfig": [{
+    "name": [{"service": "engine.v1.EngineService"}],
+    "retryPolicy": {
+      "MaxAttempts": 3,
+      "InitialBackoff": "0.05s",
+      "MaxBackoff": "0.5s",
+      "BackoffMultiplier": 2.0,
+      "RetryableStatusCodes": ["UNAVAILABLE"]
+    }
+  }]
+}`
+
 // EngineClient implements EngineAdapter over gRPC. Used by ROLE=gateway.
 type EngineClient struct {
-	conn   *grpc.ClientConn
-	client enginev1.EngineServiceClient
+	conn       *grpc.ClientConn
+	client     enginev1.EngineServiceClient
+	orderStore ordersstore.Store
+	breaker    *circuitBreaker
 }
 
 // NewEngineClient dials the engine gRPC server.
 // If tlsCAFile is set, the connection uses TLS verifying the server against that
 // CA. Otherwise the connection is plaintext (acceptable inside a trusted VPC).
-func NewEngineClient(addr, tlsCAFile string) (*EngineClient, error) {
+// orderStore resolves an order's marketID for cancels (the engine routes by market).
+func NewEngineClient(addr, tlsCAFile string, orderStore ordersstore.Store) (*EngineClient, error) {
 	var creds credentials.TransportCredentials
 	if tlsCAFile != "" {
 		c, err := credentials.NewClientTLSFromFile(tlsCAFile, "")
@@ -35,14 +55,25 @@ func NewEngineClient(addr, tlsCAFile string) (*EngineClient, error) {
 		creds = insecure.NewCredentials()
 	}
 
-	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(creds))
+	conn, err := grpc.NewClient(addr,
+		grpc.WithTransportCredentials(creds),
+		grpc.WithDefaultServiceConfig(retryServiceConfig),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("engine client: dial %s: %w", addr, err)
 	}
-	return &EngineClient{conn: conn, client: enginev1.NewEngineServiceClient(conn)}, nil
+	return &EngineClient{
+		conn:       conn,
+		client:     enginev1.NewEngineServiceClient(conn),
+		orderStore: orderStore,
+		breaker:    newCircuitBreaker(),
+	}, nil
 }
 
 func (c *EngineClient) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (PlaceOrderResponse, error) {
+	if !c.breaker.allow() {
+		return PlaceOrderResponse{}, apierrors.ErrEngineUnavailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 
@@ -59,6 +90,7 @@ func (c *EngineClient) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (P
 		ExpireAt:  req.ExpireAt,
 		StpMode:   req.STPMode,
 	})
+	c.breaker.record(err)
 	if err != nil {
 		return PlaceOrderResponse{}, err
 	}
@@ -71,24 +103,36 @@ func (c *EngineClient) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (P
 }
 
 func (c *EngineClient) CancelOrder(ctx context.Context, orderID, userID string) error {
+	// The engine routes commands by marketID, so resolve it from the order record.
+	order, err := c.orderStore.GetOrder(ctx, orderID)
+	if err != nil {
+		return fmt.Errorf("cancel: order not found: %s", orderID)
+	}
+	if !c.breaker.allow() {
+		return apierrors.ErrEngineUnavailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
-	// marketID lookup would normally come from the orders store; pass empty for now
-	// and let the engine look it up by orderID (future enhancement)
-	_, err := c.client.CancelOrder(ctx, &enginev1.CancelOrderRequest{
-		OrderId: orderID,
-		UserId:  userID,
+	_, err = c.client.CancelOrder(ctx, &enginev1.CancelOrderRequest{
+		MarketId: order.MarketID,
+		OrderId:  orderID,
+		UserId:   userID,
 	})
+	c.breaker.record(err)
 	return err
 }
 
 func (c *EngineClient) GetDepth(ctx context.Context, marketID string, levels int) (events.BookSnapshot, error) {
+	if !c.breaker.allow() {
+		return events.BookSnapshot{}, apierrors.ErrEngineUnavailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 	resp, err := c.client.GetDepth(ctx, &enginev1.GetDepthRequest{
 		MarketId: marketID,
 		Levels:   int32(levels),
 	})
+	c.breaker.record(err)
 	if err != nil {
 		return events.BookSnapshot{}, err
 	}
@@ -141,9 +185,13 @@ func parseDepthDecimal(s string) types.Decimal {
 }
 
 func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask string, err error) {
+	if !c.breaker.allow() {
+		return "", "", apierrors.ErrEngineUnavailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 	defer cancel()
 	resp, err := c.client.GetBBO(ctx, &enginev1.GetBBORequest{MarketId: marketID})
+	c.breaker.record(err)
 	if err != nil {
 		return "", "", err
 	}
@@ -151,9 +199,13 @@ func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask st
 }
 
 func (c *EngineClient) GetStats(ctx context.Context, marketID string) (MarketStats, error) {
+	if !c.breaker.allow() {
+		return MarketStats{}, apierrors.ErrEngineUnavailable
+	}
 	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
 	defer cancel()
 	resp, err := c.client.GetStats(ctx, &enginev1.GetStatsRequest{MarketId: marketID})
+	c.breaker.record(err)
 	if err != nil {
 		return MarketStats{}, err
 	}

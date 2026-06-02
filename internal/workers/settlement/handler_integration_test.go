@@ -53,6 +53,58 @@ func runEvent(t *testing.T, pool *pgxpool.Pool, h *settlement.Handler, env worke
 
 func d2(s string) types.Decimal { return types.MustDecimal(s, 2) }
 
+// A fill advances the order's status, filled_qty, and remain_qty.
+func TestSettlement_FillUpdatesOrderStatus(t *testing.T) {
+	pool := testsupport.RequirePostgres(t)
+	h, w, orders := seed(t, pool)
+	ctx := context.Background()
+
+	w.Credit(ctx, "alice", d2("500.00"))
+	w.Reserve(ctx, "alice", d2("500.00"))
+	orders.InsertOrder(ctx, ordersstore.OrderRow{
+		OrderID: "ord_fill", UserID: "alice", MarketID: mkt,
+		Side: "bid", OrderType: "limit", Price: d2("100.00").Value(),
+		OrigQty: 500, RemainQty: 500, Status: "new", TIF: "GTC",
+	})
+	orders.UpdateReservedPerUnit(ctx, "ord_fill", d2("100.00").Value())
+
+	// Partial fill: 2.00 of 5.00 → remain 3.00, status partial.
+	runEvent(t, pool, h, workers.EventEnvelope{
+		Event: &events.TradeFill{
+			Base: events.NewBase(1, time.Now().UnixNano(), mkt),
+			OrderID: "ord_fill", UserID: "alice", Role: events.RoleTaker, Side: types.Bid,
+			Price: d2("100.00"), FilledQty: d2("2.00"), RemainQty: d2("3.00"), Fee: d2("0.00"),
+		},
+		EventType: events.TypeTradeFill, MarketID: mkt, SeqNum: 1,
+	})
+
+	o, _ := orders.GetOrder(ctx, "ord_fill")
+	if o.Status != "partial" {
+		t.Errorf("status after partial fill = %q, want partial", o.Status)
+	}
+	if o.RemainQty != 300 || o.FilledQty != 200 {
+		t.Errorf("after partial: remain=%d filled=%d, want 300/200", o.RemainQty, o.FilledQty)
+	}
+
+	// Fill the remainder: remain 0 → status filled.
+	runEvent(t, pool, h, workers.EventEnvelope{
+		Event: &events.TradeFill{
+			Base: events.NewBase(2, time.Now().UnixNano(), mkt),
+			OrderID: "ord_fill", UserID: "alice", Role: events.RoleTaker, Side: types.Bid,
+			Price: d2("100.00"), FilledQty: d2("3.00"), RemainQty: d2("0.00"), Fee: d2("0.00"),
+		},
+		EventType: events.TypeTradeFill, MarketID: mkt, SeqNum: 2,
+	})
+
+	o, _ = orders.GetOrder(ctx, "ord_fill")
+	if o.Status != "filled" {
+		t.Errorf("status after full fill = %q, want filled", o.Status)
+	}
+	if o.RemainQty != 0 || o.FilledQty != 500 {
+		t.Errorf("after full fill: remain=%d filled=%d, want 0/500", o.RemainQty, o.FilledQty)
+	}
+}
+
 // Taker buyer with a market order: the 2× BBO buffer excess is returned.
 func TestSettlement_TakerBuyerReleasesReservationAndDeductsCost(t *testing.T) {
 	pool := testsupport.RequirePostgres(t)
