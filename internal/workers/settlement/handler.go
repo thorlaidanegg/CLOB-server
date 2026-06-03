@@ -124,8 +124,8 @@ func (h *Handler) settleBuyer(ctx context.Context, tx pgx.Tx, fill *events.Trade
 	}
 
 	reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
-	reservationForFill := reservedPerUnit.Mul(fill.FilledQty)
-	cost := fill.Price.Mul(fill.FilledQty).Add(fill.Fee)
+	reservationForFill := reservedPerUnit.MulQty(fill.FilledQty)
+	cost := fill.Price.MulQty(fill.FilledQty).Add(fill.Fee)
 
 	tag, err := tx.Exec(ctx,
 		`UPDATE wallets SET
@@ -149,7 +149,7 @@ func (h *Handler) settleBuyer(ctx context.Context, tx pgx.Tx, fill *events.Trade
 // so reserved is untouched.
 func (h *Handler) settleSeller(ctx context.Context, tx pgx.Tx, fill *events.TradeFill) error {
 	userID := string(fill.UserID)
-	proceeds := fill.Price.Mul(fill.FilledQty).Sub(fill.Fee)
+	proceeds := fill.Price.MulQty(fill.FilledQty).Sub(fill.Fee)
 
 	tag, err := tx.Exec(ctx,
 		`UPDATE wallets SET
@@ -183,7 +183,7 @@ func (h *Handler) handleOrderCanceled(ctx context.Context, tx pgx.Tx, ev *events
 		}
 		qty := types.NewDecimal(order.RemainQty, market.QtyPrecision)
 		reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
-		release := reservedPerUnit.Mul(qty)
+		release := reservedPerUnit.MulQty(qty)
 
 		if _, err := tx.Exec(ctx,
 			`UPDATE wallets SET
@@ -228,7 +228,7 @@ func (h *Handler) handleOrderRejected(ctx context.Context, tx pgx.Tx, ev *events
 		}
 		reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
 		qty := types.NewDecimal(order.OrigQty, market.QtyPrecision)
-		release := reservedPerUnit.Mul(qty)
+		release := reservedPerUnit.MulQty(qty)
 
 		if _, err := tx.Exec(ctx,
 			`UPDATE wallets SET

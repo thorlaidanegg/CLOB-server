@@ -198,7 +198,7 @@ func cancelOrderTx(ctx context.Context, pool *pgxpool.Pool, o openOrderRow, pp, 
 	if o.ReservedPerUnit > 0 {
 		qty := types.NewDecimal(o.RemainQty, qp)
 		reservedPerUnit := types.NewDecimal(o.ReservedPerUnit, pp)
-		releaseRaw = reservedPerUnit.Mul(qty).Value()
+		releaseRaw = reservedPerUnit.MulQty(qty).Value()
 	}
 
 	if releaseRaw > 0 {

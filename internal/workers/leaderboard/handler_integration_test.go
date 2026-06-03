@@ -7,6 +7,7 @@ import (
 	"github.com/rs/zerolog"
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/events"
+	"github.com/thorlaidanegg/clob/testutil"
 	"github.com/thorlaidanegg/clob/types"
 	"github.com/thorlaidanegg/clob-server/internal/testsupport"
 	"github.com/thorlaidanegg/clob-server/internal/workers"
@@ -18,9 +19,9 @@ func TestLeaderboardHandler_RealisesPnLOnSell(t *testing.T) {
 	rdb := testsupport.RequireMiniRedis(t)
 	ctx := context.Background()
 
-	// Self-consistent market: price and qty share precision 2 (see note about the
-	// cross-precision Mul panic in the handlers).
-	cache := map[string]clobconfig.MarketConfig{"BTC-USD": {MarketID: "BTC-USD", PricePrecision: 2, QtyPrecision: 2}}
+	// Realistic market with price precision 2 and qty precision 0 (pp != qp),
+	// exercising the cross-precision PnL path (MulQty).
+	cache := map[string]clobconfig.MarketConfig{"BTC-USD": testutil.DefaultConfig("BTC-USD")}
 	h, err := leaderboard.New(pool, rdb, cache, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
@@ -29,8 +30,8 @@ func TestLeaderboardHandler_RealisesPnLOnSell(t *testing.T) {
 	fill := func(side types.Side, price, qty string, seq uint64) *events.TradeFill {
 		return &events.TradeFill{
 			Base: events.NewBase(seq, 0, "BTC-USD"), OrderID: "o", UserID: "alice",
-			Side: side, Price: types.MustDecimal(price, 2), FilledQty: types.MustDecimal(qty, 2),
-			RemainQty: types.MustDecimal("0.00", 2),
+			Side: side, Price: types.MustDecimal(price, 2), FilledQty: types.MustDecimal(qty, 0),
+			RemainQty: types.MustDecimal("0", 0),
 		}
 	}
 	apply := func(f *events.TradeFill) {
@@ -42,13 +43,13 @@ func TestLeaderboardHandler_RealisesPnLOnSell(t *testing.T) {
 	}
 
 	// Buy 5 @ 100.00 establishes the cached entry price (no leaderboard change).
-	apply(fill(types.Bid, "100.00", "5.00", 1))
+	apply(fill(types.Bid, "100.00", "5", 1))
 	if _, err := rdb.ZScore(ctx, "leaderboard", "alice").Result(); err == nil {
 		t.Fatal("buy should not put a score on the leaderboard yet")
 	}
 
 	// Sell 5 @ 110.00 realises PnL (110-100)*5 = 50.00 → raw 5000.
-	apply(fill(types.Ask, "110.00", "5.00", 2))
+	apply(fill(types.Ask, "110.00", "5", 2))
 	score, err := rdb.ZScore(ctx, "leaderboard", "alice").Result()
 	if err != nil {
 		t.Fatalf("ZScore: %v", err)

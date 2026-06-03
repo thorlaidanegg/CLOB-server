@@ -97,7 +97,7 @@ func (h *PostgresWalletHook) validateBuy(ctx hooks.OrderContext) hooks.Validatio
 		if ok && ask != "" {
 			askDec, err := types.ParseDecimal(ask, ctx.Config.PricePrecision)
 			if err == nil {
-				required = askDec.Mul(ctx.Qty).MulInt(2)
+				required = askDec.MulQty(ctx.Qty).MulInt(2)
 			}
 		}
 		if required.Value() == 0 {
@@ -105,7 +105,7 @@ func (h *PostgresWalletHook) validateBuy(ctx hooks.OrderContext) hooks.Validatio
 			return hooks.OK()
 		}
 	} else {
-		required = ctx.Price.Mul(ctx.Qty)
+		required = ctx.Price.MulQty(ctx.Qty)
 	}
 
 	if available.Value() < required.Value() {

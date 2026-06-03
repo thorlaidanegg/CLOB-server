@@ -77,7 +77,7 @@ func GetPortfolio(pool *pgxpool.Pool, rdb *redis.Client) http.HandlerFunc {
 			if lp, ok2, _ := redisstore.GetLastPrice(r.Context(), rdb, p.MarketID); ok2 {
 				lastPriceStr = lp
 				if lastDec, err := types.ParseDecimal(lp, pp); err == nil {
-					unrealised = lastDec.Sub(avgEntry).Mul(qty)
+					unrealised = lastDec.Sub(avgEntry).MulQty(qty)
 				}
 			}
 

@@ -64,7 +64,7 @@ func (h *Handler) handleBuy(ctx context.Context, tx pgx.Tx, userID, marketID str
 	existingAvg := types.NewDecimal(row.AvgEntryPrice, pp)
 	existingQty := types.NewDecimal(row.Quantity, qp)
 	newQty := existingQty.Add(fill.FilledQty)
-	numerator := existingAvg.Mul(existingQty).Add(fill.Price.Mul(fill.FilledQty))
+	numerator := existingAvg.MulQty(existingQty).Add(fill.Price.MulQty(fill.FilledQty))
 	var newAvg types.Decimal
 	if newQty.Value() != 0 {
 		newAvg = numerator.Div(newQty, pp)
@@ -102,7 +102,7 @@ func (h *Handler) handleSell(ctx context.Context, tx pgx.Tx, userID, marketID st
 	existingPnL := types.NewDecimal(pnlRaw, pp)
 	existingQty := types.NewDecimal(qRaw, qp)
 
-	fillPnL := fill.Price.Sub(existingAvg).Mul(fill.FilledQty)
+	fillPnL := fill.Price.Sub(existingAvg).MulQty(fill.FilledQty)
 	newPnL := existingPnL.Add(fillPnL)
 	newQty := existingQty.Sub(fill.FilledQty)
 

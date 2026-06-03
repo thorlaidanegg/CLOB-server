@@ -79,7 +79,7 @@ func (h *Handler) HandleEvent(ctx context.Context, _ pgx.Tx, env workers.EventEn
 		existingQty := types.NewDecimal(h.qtyCache[key], qp)
 		newQty := existingQty.Add(fill.FilledQty)
 		if newQty.Value() != 0 {
-			numerator := existingAvg.Mul(existingQty).Add(fill.Price.Mul(fill.FilledQty))
+			numerator := existingAvg.MulQty(existingQty).Add(fill.Price.MulQty(fill.FilledQty))
 			newAvg := numerator.Div(newQty, pp)
 			h.avgCache[key] = newAvg.Value()
 		}
@@ -89,7 +89,7 @@ func (h *Handler) HandleEvent(ctx context.Context, _ pgx.Tx, env workers.EventEn
 
 	// Sell: realise PnL and push to Redis leaderboard.
 	avgDec := types.NewDecimal(h.avgCache[key], pp)
-	fillPnL := fill.Price.Sub(avgDec).Mul(fill.FilledQty)
+	fillPnL := fill.Price.Sub(avgDec).MulQty(fill.FilledQty)
 
 	if err := redisstore.ZIncrBy(ctx, h.rdb, "leaderboard", float64(fillPnL.Value()), userID); err != nil {
 		h.logger.Warn().Err(err).Str("userID", userID).Msg("leaderboard: ZIncrBy global failed")
