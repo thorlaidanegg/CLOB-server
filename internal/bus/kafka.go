@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -58,6 +59,25 @@ func NewKafkaConsumer(brokers []string, groupID string) (*KafkaConsumer, error) 
 	)
 	if err != nil {
 		return nil, fmt.Errorf("kafka consumer: %w", err)
+	}
+	return &KafkaConsumer{client: client}, nil
+}
+
+// NewKafkaRecoveryConsumer creates a one-shot consumer that reads a topic from
+// the beginning, used to fold the event log during crash recovery. It uses a
+// unique throwaway group so each recovery run replays the full retained log;
+// the bookstate fold is idempotent (events at or below the checkpoint seq are
+// skipped), so re-reading already-checkpointed events is cheap and safe.
+func NewKafkaRecoveryConsumer(brokers []string) (*KafkaConsumer, error) {
+	group := fmt.Sprintf("engine-recovery-%d", time.Now().UnixNano())
+	client, err := kgo.NewClient(
+		kgo.SeedBrokers(brokers...),
+		kgo.ConsumerGroup(group),
+		kgo.ConsumeResetOffset(kgo.NewOffset().AtStart()),
+		kgo.DisableAutoCommit(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("kafka recovery consumer: %w", err)
 	}
 	return &KafkaConsumer{client: client}, nil
 }

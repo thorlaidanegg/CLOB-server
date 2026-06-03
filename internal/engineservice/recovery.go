@@ -2,12 +2,114 @@ package engineservice
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
+	"github.com/thorlaidanegg/clob-server/internal/bookstate"
+	"github.com/thorlaidanegg/clob-server/internal/bus"
+	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
+	"github.com/thorlaidanegg/clob-server/internal/workers"
+	"github.com/thorlaidanegg/clob/engine"
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/types"
 )
+
+// --- Replay recovery (default) -------------------------------------------
+//
+// The engine's own market-events log is the source of truth. On startup we load
+// the latest per-market checkpoint (a compaction of that log, maintained by the
+// booksnapshot worker and durable in Postgres) and, when a Kafka tail consumer is
+// supplied, fold any events past the checkpoint to close the final gap. The
+// resulting resting orders seed the engine via WithInitialOrders; reserved
+// credits never moved during a crash, so no wallet changes are needed.
+
+// idleDrainTimeout is how long the tail reader waits for a new event before
+// concluding it has caught up to the head of the log.
+const idleDrainTimeout = 2 * time.Second
+
+// RecoverReplay rebuilds each market's resting book from its checkpoint, folding
+// the Kafka event tail when consumer is non-nil. It returns the recovered orders
+// per market and the initial event sequence (last folded seq + 1) so the engine's
+// event counter continues above already-published events and never collides with
+// worker idempotency. consumer is closed by the caller.
+func RecoverReplay(
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	marketCfgs []clobconfig.MarketConfig,
+	consumer bus.Consumer,
+	log zerolog.Logger,
+) (map[string][]engine.RecoveredOrder, map[string]uint64) {
+	states := make(map[string]*bookstate.BookState, len(marketCfgs))
+	known := make(map[string]bool, len(marketCfgs))
+	for _, mc := range marketCfgs {
+		id := string(mc.MarketID)
+		known[id] = true
+		st := bookstate.New()
+		if row, ok, err := pgstore.GetBookSnapshot(ctx, pool, id); err != nil {
+			log.Error().Err(err).Str("market", id).Msg("recovery: load checkpoint failed, starting fresh")
+		} else if ok {
+			if uerr := json.Unmarshal(row.State, st); uerr != nil {
+				log.Error().Err(uerr).Str("market", id).Msg("recovery: corrupt checkpoint, starting fresh")
+				st = bookstate.New()
+			}
+		}
+		states[id] = st
+	}
+
+	if consumer != nil {
+		drainFold(ctx, consumer, states, known, log)
+	}
+
+	recovered := make(map[string][]engine.RecoveredOrder, len(states))
+	initSeq := make(map[string]uint64, len(states))
+	for id, st := range states {
+		recovered[id] = st.ToRecovered()
+		initSeq[id] = st.LastEventSeq + 1
+		if n := len(recovered[id]); n > 0 {
+			log.Info().Str("market", id).Int("orders", n).Uint64("throughSeq", st.LastEventSeq).
+				Msg("recovery: rebuilt resting book from event log")
+		}
+	}
+	return recovered, initSeq
+}
+
+// drainFold reads market-events from the beginning and folds each event into the
+// matching market's state, stopping once the log is drained (no new event within
+// idleDrainTimeout). The fold skips events at or below each checkpoint's seq, so
+// re-reading the retained log is cheap and idempotent.
+func drainFold(ctx context.Context, consumer bus.Consumer, states map[string]*bookstate.BookState, known map[string]bool, log zerolog.Logger) {
+	if err := consumer.Subscribe("market-events", ""); err != nil {
+		log.Error().Err(err).Msg("recovery: subscribe failed; checkpoint-only recovery")
+		return
+	}
+
+	var folded int
+	for {
+		pctx, cancel := context.WithTimeout(ctx, idleDrainTimeout)
+		msg, err := consumer.Poll(pctx)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return // parent canceled
+			}
+			break // idle timeout — log drained
+		}
+		if len(msg.Value) == 0 || !known[msg.Key] {
+			continue
+		}
+		ev, derr := workers.DeserializeEvent(msg.Headers["event-type"], msg.Value)
+		if derr != nil || ev == nil {
+			continue
+		}
+		states[msg.Key].Apply(ev)
+		folded++
+	}
+	log.Info().Int("events", folded).Msg("recovery: folded event tail")
+}
+
+// --- Cancel recovery (ENGINE_RECOVERY=cancel fallback) -------------------
 
 // RecoverOpenOrders cancels all orders that were open before the engine restarted.
 //

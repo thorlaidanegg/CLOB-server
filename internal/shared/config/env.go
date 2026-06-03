@@ -31,6 +31,11 @@ type Config struct {
 
 	AdminBootstrapKey string
 
+	// EngineRecovery selects how the engine rebuilds book state on restart:
+	// "replay" (default) rebuilds each market from the event-log checkpoint;
+	// "cancel" cancels all open orders and releases their reservations.
+	EngineRecovery string
+
 	// gRPC TLS. If GRPCTLSCertFile and GRPCTLSKeyFile are both set, the engine
 	// serves gRPC over TLS. If GRPCTLSCAFile is set, the gateway dials over TLS
 	// verifying the server against that CA. All empty = plaintext (fine for VPC).
@@ -66,6 +71,8 @@ func LoadFromEnv() *Config {
 		EventBufferSize: envInt("EVENT_BUFFER_SIZE", 50000),
 
 		AdminBootstrapKey: os.Getenv("ADMIN_BOOTSTRAP_KEY"),
+
+		EngineRecovery: envOr("ENGINE_RECOVERY", "replay"),
 
 		GRPCTLSCertFile: os.Getenv("GRPC_TLS_CERT_FILE"),
 		GRPCTLSKeyFile:  os.Getenv("GRPC_TLS_KEY_FILE"),

@@ -44,9 +44,28 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 		log.Fatal().Err(err).Msg("engine: load markets")
 	}
 
-	// V1 restart recovery: cancel orders that were open when the engine last exited
-	// and release their reserved credits. Must run before the engine accepts new commands.
-	RecoverOpenOrders(ctx, pool, marketCfgs, log)
+	// Restart recovery. Must run before the engine accepts new commands.
+	// "replay" (default): rebuild each market's book from its event-log checkpoint,
+	// folding the Kafka tail when brokers are configured. "cancel": drop open
+	// orders and release reservations.
+	var recovered map[string][]engine.RecoveredOrder
+	var initialEventSeq map[string]uint64
+	if cfg.EngineRecovery == "cancel" {
+		RecoverOpenOrders(ctx, pool, marketCfgs, log)
+	} else {
+		var rc bus.Consumer
+		if len(cfg.KafkaBrokers) > 0 {
+			if c, err := bus.NewKafkaRecoveryConsumer(cfg.KafkaBrokers); err != nil {
+				log.Error().Err(err).Msg("engine: recovery consumer; recovering from checkpoint only")
+			} else {
+				rc = c
+			}
+		}
+		recovered, initialEventSeq = RecoverReplay(ctx, pool, marketCfgs, rc, log)
+		if rc != nil {
+			rc.Close()
+		}
+	}
 
 	// Volume cache backs tiered fee markets; refreshed every minute from the trades table.
 	volumeCache := NewVolumeCache(pool, marketCfgs, log)
@@ -54,9 +73,18 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 
 	multi := engine.NewMultiEngine()
 	for _, mc := range marketCfgs {
+		id := string(mc.MarketID)
+		// Continue the event sequence above the last recovered event so new events
+		// never collide with worker idempotency (which skips seq <= last seen).
+		if s, ok := initialEventSeq[id]; ok && s > 0 {
+			mc.InitialEventSeq = s
+		}
 		opts := []engine.Option{
 			engine.WithPreOrderHook(hook),
 			engine.WithFeeCalculator(FeeCalculatorFor(mc, volumeCache)),
+		}
+		if ro := recovered[id]; len(ro) > 0 {
+			opts = append(opts, engine.WithInitialOrders(ro))
 		}
 		if err := multi.CreateMarket(mc, opts...); err != nil {
 			log.Fatal().Err(err).Str("market", string(mc.MarketID)).Msg("engine: create market")

@@ -45,6 +45,13 @@ var eventRegistry = map[string]func() events.Event{
 	events.TypeMarketResumed: func() events.Event { return &events.MarketResumed{} },
 }
 
+// DeserializeEvent decodes a raw event payload into its concrete type using the
+// shared registry. Unknown types return (nil, nil) so callers can skip them.
+// Exported for crash recovery, which folds the same event stream.
+func DeserializeEvent(eventType string, raw []byte) (events.Event, error) {
+	return deserializeEvent(eventType, raw)
+}
+
 func deserializeEvent(eventType string, raw []byte) (events.Event, error) {
 	factory, ok := eventRegistry[eventType]
 	if !ok {

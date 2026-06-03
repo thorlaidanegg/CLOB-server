@@ -84,6 +84,7 @@ independently scalable and testable.
 | `portfolio`   | Consumes fills → updates positions, average entry price, realised PnL. |
 | `leaderboard` | Consumes sell fills → maintains a Redis sorted set of realised PnL. |
 | `feed`        | Consumes all events → fans them out to subscribed WebSocket clients. |
+| `booksnapshot`| Folds the event log into a per-market resting-book **checkpoint** (durable in Postgres), bounding crash-recovery replay. |
 | `all`         | Runs every role in one process using an **in-memory bus** (no Kafka). Ideal for local dev and small deployments. |
 
 ### Event flow & idempotency
@@ -115,8 +116,9 @@ portfolio are therefore exactly-once in effect.
   fills/depth/portfolio streams.
 - **Tiered fees** — volume-based fee tiers backed by a 30-day-volume cache
   refreshed from the `trades` table (engine hot-path never hits the DB).
-- **Restart recovery (v1)** — open orders are canceled and their reserved credits
-  released on engine restart.
+- **Crash recovery (event-sourced)** — on restart the engine rebuilds each
+  market's resting book by folding its own `market-events` log from the last
+  checkpoint, so open orders survive. See [Crash recovery](#crash-recovery).
 - **Observability** — Prometheus metrics at `/metrics`, structured zerolog logs
   with request IDs.
 - **Optional gRPC TLS** between gateway and engine; configurable CORS for browser
@@ -273,17 +275,50 @@ The credit/position accounting is specified precisely in
 
 ## Data stores
 
-**Postgres** is the durable source of truth (wallets, positions, orders, markets,
-users, api_keys, trades, worker_offsets). Schema is applied by sequential
-migrations in `internal/store/postgres/migrations/` (`001`–`009`) — append-only,
-never edit an existing migration.
+**Postgres** is the durable store (wallets, positions, orders, markets, users,
+api_keys, trades, worker_offsets, dead_letter_events, book_snapshots). Schema is
+applied by sequential migrations in `internal/store/postgres/migrations/`
+(`001`–`011`) — append-only, never edit an existing migration.
 
 **Redis** is fast/rebuildable cache: API-key auth cache (60s TTL), per-user rate
 limits, BBO cache, last trade price, and the leaderboard sorted sets.
 
 **Kafka** (`market-events`, partitioned by `marketID`) is the event log between
-the engine and the workers. In `ROLE=all` it is replaced by an in-memory bus, so
-no Kafka is required for single-process deployments.
+the engine and the workers — and the source of truth for crash recovery. In
+`ROLE=all` it is replaced by an in-memory bus, so no Kafka is required for
+single-process deployments.
+
+---
+
+## Crash recovery
+
+The matching engine holds each market's order book in memory for speed. The
+question that matters is what happens when the engine process dies. The answer is
+**event-sourced replay**, consistent with the architecture's own rule that the
+`market-events` log — not Postgres — is the source of truth:
+
+1. **Checkpointing.** The `booksnapshot` worker consumes `market-events` and folds
+   it into a per-market resting-book state (`internal/bookstate`), persisting a
+   compacted **checkpoint** to the `book_snapshots` table. The fold is a pure
+   function of the event stream and is replay-idempotent (events at or below the
+   checkpoint's sequence are skipped). The checkpoint bounds how far recovery has
+   to replay — the scalability knob.
+2. **Recovery.** On startup the engine loads the latest checkpoint per market and,
+   in the Kafka deployment, folds any events past it, then seeds the rebuilt
+   resting orders into the book via the library's `WithInitialOrders` option —
+   placed directly, without re-matching, without re-running the credit hook, and
+   without re-emitting events. The engine's event sequence is resumed **above** the
+   last recovered event so new events never collide with worker idempotency.
+   **Reserved credits never moved during the crash, so recovery touches no wallets.**
+
+Open orders survive a restart — no mass cancellation.
+
+**Honest limits.** Recovery is consistent up to the last checkpointed (and
+tail-folded) event; iceberg hidden-quantity internals are approximated from fill
+remainders. `ROLE=all` has no durable event log, so it recovers from the Postgres
+checkpoint alone (the `booksnapshot` worker checkpoints every event, so the gap is
+negligible) and can be set to the old behaviour with `ENGINE_RECOVERY=cancel`. A
+fully bit-exact rebuild would use a command write-ahead log (see [Roadmap](#roadmap)).
 
 ---
 
@@ -295,8 +330,9 @@ no Kafka is required for single-process deployments.
 | **Single-VM split** | `docker-compose.prod.yml` — each role a container, one Redpanda/Postgres/Redis | Beta / early production on one box. |
 | **Multi-VM** | Engine and gateway on separate hosts; gateways behind a sticky-session LB (WebSocket); managed Postgres/Redis/Kafka | Horizontal scale. |
 
-> `ROLE=all` keeps the order book in memory with no Kafka, so events are not
-> durable across a restart of that single process — fine for dev, not for prod.
+> `ROLE=all` keeps the order book in memory with no Kafka. The book still recovers
+> from the durable Postgres checkpoint on restart, but without a durable event log
+> the last few un-checkpointed events can't be tail-folded — fine for dev, not prod.
 
 ---
 
@@ -388,11 +424,16 @@ chi/v5 (HTTP) · coder/websocket · zerolog · Prometheus client.
 
 ## Roadmap
 
-- **v2 — write-ahead log / exact recovery.** Commands are written to a
-  `market-commands` Kafka topic before the engine processes them; on restart the
-  engine replays from its last offset to reconstruct exact book state without
-  canceling open orders. This changes only how commands enter the engine — the
-  library, workers, gateway, and API contract are unchanged.
+- **Bounded-replay seek.** Today recovery folds the retained event log from the
+  start (idempotent, but re-reads checkpointed events). Implementing a real
+  per-partition Kafka seek to the checkpoint offset makes replay strictly bounded
+  by the checkpoint interval at large log sizes.
+- **Command write-ahead log / bit-exact recovery.** Commands are written to a
+  `market-commands` Kafka topic *before* the engine processes them; on restart the
+  engine deterministically replays commands to reconstruct exact book state
+  (re-running matching). Heavier than the current event-replay recovery — changes
+  the command-ingest path — but bit-exact. The library, workers, gateway, and API
+  contract are unchanged.
 - **Real-money path.** Replace the pre-order hook (credit check) and the
   settlement handler (credit movement) with custodian/payment-rail integrations;
   add on-ramp/withdrawal services. Everything else stays the same.

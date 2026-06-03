@@ -78,7 +78,7 @@ func TruncateAll(t *testing.T, pool *pgxpool.Pool) {
 	defer cancel()
 	_, err := pool.Exec(ctx,
 		`TRUNCATE wallets, positions, orders, markets, users, api_keys,
-		          worker_offsets, trades, dead_letter_events CASCADE`)
+		          worker_offsets, trades, dead_letter_events, book_snapshots CASCADE`)
 	if err != nil {
 		t.Fatalf("testsupport: truncate: %v", err)
 	}

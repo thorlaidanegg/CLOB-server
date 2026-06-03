@@ -21,6 +21,7 @@ import (
 	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
 	"github.com/thorlaidanegg/clob-server/internal/wallet"
 	"github.com/thorlaidanegg/clob-server/internal/workers"
+	booksnapshotworker "github.com/thorlaidanegg/clob-server/internal/workers/booksnapshot"
 	feedworker "github.com/thorlaidanegg/clob-server/internal/workers/feed"
 	lbworker "github.com/thorlaidanegg/clob-server/internal/workers/leaderboard"
 	portfolioworker "github.com/thorlaidanegg/clob-server/internal/workers/portfolio"
@@ -46,10 +47,12 @@ func main() {
 		lbworker.Run(ctx, cfg, log)
 	case "feed":
 		feedworker.Run(ctx, cfg, log)
+	case "booksnapshot":
+		booksnapshotworker.Run(ctx, cfg, log)
 	case "all":
 		runAll(ctx, cfg)
 	default:
-		log.Fatal().Str("role", cfg.Role).Msg("unknown ROLE — valid: engine, gateway, settlement, portfolio, leaderboard, feed, all")
+		log.Fatal().Str("role", cfg.Role).Msg("unknown ROLE — valid: engine, gateway, settlement, portfolio, leaderboard, feed, booksnapshot, all")
 	}
 }
 
@@ -83,8 +86,16 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 	positions := engineservice.NewPgPositionReader(pool)
 	hook := engineservice.NewPostgresWalletHook(walletStore, orderStore, positions, rdb, log)
 
-	// V1 restart recovery: cancel open orders before accepting new commands.
-	engineservice.RecoverOpenOrders(ctx, pool, marketCfgs, log)
+	// Restart recovery. The book_snapshots checkpoint is durable in Postgres even
+	// though the in-memory bus loses events, so ROLE=all rebuilds from the last
+	// checkpoint (no Kafka tail available here). ENGINE_RECOVERY=cancel opts out.
+	var recovered map[string][]engine.RecoveredOrder
+	var initialEventSeq map[string]uint64
+	if cfg.EngineRecovery == "cancel" {
+		engineservice.RecoverOpenOrders(ctx, pool, marketCfgs, log)
+	} else {
+		recovered, initialEventSeq = engineservice.RecoverReplay(ctx, pool, marketCfgs, nil, log)
+	}
 
 	// Volume cache backs tiered fee markets.
 	volumeCache := engineservice.NewVolumeCache(pool, marketCfgs, log)
@@ -92,10 +103,18 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 
 	multi := engine.NewMultiEngine()
 	for _, mc := range marketCfgs {
-		if err := multi.CreateMarket(mc,
+		id := string(mc.MarketID)
+		if s, ok := initialEventSeq[id]; ok && s > 0 {
+			mc.InitialEventSeq = s
+		}
+		opts := []engine.Option{
 			engine.WithPreOrderHook(hook),
 			engine.WithFeeCalculator(engineservice.FeeCalculatorFor(mc, volumeCache)),
-		); err != nil {
+		}
+		if ro := recovered[id]; len(ro) > 0 {
+			opts = append(opts, engine.WithInitialOrders(ro))
+		}
+		if err := multi.CreateMarket(mc, opts...); err != nil {
 			log.Fatal().Err(err).Str("market", string(mc.MarketID)).Msg("create market")
 		}
 	}
@@ -124,6 +143,15 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 
 	feedHandler := feedworker.New(hub, rdb, log)
 	go workers.NewWorkerRunner("feed", "market-events", pool, inMemBus.NewConsumer(), feedHandler, log).Run(ctx)
+
+	// Book-snapshot checkpoints. In ROLE=all the in-memory bus loses events on
+	// restart, so recovery still falls back to cancel; the worker keeps the
+	// book_snapshots table populated for parity with the split deployment.
+	bsHandler := booksnapshotworker.New(log)
+	if err := bsHandler.LoadSnapshots(ctx, pool); err != nil {
+		log.Fatal().Err(err).Msg("load book snapshots")
+	}
+	go workers.NewWorkerRunner("booksnapshot", "market-events", pool, inMemBus.NewConsumer(), bsHandler, log).Run(ctx)
 
 	engineAdapter := gatewayclient.NewDirectAdapter(multi, marketCfgs, orderStore)
 	deps := &gateway.Deps{
