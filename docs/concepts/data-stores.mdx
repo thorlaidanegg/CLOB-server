@@ -9,7 +9,7 @@ clob-server uses three stores, each for what it's best at.
 ## Postgres — durable source of truth
 
 All financial and identity state. Schema is applied by **append-only**
-migrations in `internal/store/postgres/migrations/` (`001`–`009`). Never edit an
+migrations in `internal/store/postgres/migrations/` (`001`–`011`). Never edit an
 existing migration; add a new one.
 
 | Table | Holds |
@@ -21,7 +21,9 @@ existing migration; add a new one.
 | `users` | user accounts |
 | `api_keys` | SHA-256 key hash, scopes, tier, rate limit, expiry |
 | `trades` | executed trades (feeds the leaderboard and 30-day fee-volume cache) |
-| `worker_offsets` | last processed event sequence per worker per market (idempotency) |
+| `worker_offsets` | last processed event seq + Kafka offset/partition per worker per market (idempotency + seek) |
+| `dead_letter_events` | poison events parked after retries (a Postgres sink, not a Kafka DLT topic) |
+| `book_snapshots` | per-market resting-book checkpoint that bounds crash-recovery replay |
 
 ## Redis — fast, rebuildable cache
 
@@ -56,4 +58,6 @@ Across all three stores and the wire, money is **fixed-point**, never `float64`:
 - **JSON / gRPC:** decimal **strings** (e.g. `"100.00"`)
 
 A value's precision is carried with it, so `"100.00"` and `"0.00000001"`
-round-trip exactly.
+round-trip exactly. Price precision and quantity precision are independent per
+market, so every `price × qty` (notional) uses `Decimal.MulQty`, which handles the
+differing precisions — never `Decimal.Mul`, which requires them to match.

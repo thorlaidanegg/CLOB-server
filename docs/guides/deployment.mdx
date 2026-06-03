@@ -19,8 +19,9 @@ docker compose up --build
 Best for local development, demos, and small instances.
 
 <Warning>
-  The book is in memory and events are not durable across a restart of the single
-  process. Use split roles for production durability.
+  The book is in memory with no Kafka. It still recovers from the durable Postgres
+  checkpoint on restart, but without a durable event log the last few
+  un-checkpointed events can't be tail-folded. Use split roles for production.
 </Warning>
 
 ## Single-VM, split roles
@@ -65,9 +66,26 @@ exposing `8080` (HTTP) and `50051` (gRPC).
 Logs are structured JSON (zerolog) in non-local environments, with a request ID
 on every HTTP request.
 
-## Restart recovery (v1)
+## Crash recovery (event-sourced)
 
-On engine restart, any orders left open in Postgres are canceled and their
-reserved credits released before the engine accepts new commands. Credits and
-positions are always consistent; only open orders are affected — users re-enter
-them. Exact book recovery (a write-ahead log) is the planned v2 enhancement.
+On restart the engine rebuilds each market's resting book by folding its own
+`market-events` log — so **open orders survive a restart**, no mass cancellation.
+
+- The **`booksnapshot`** role continuously folds the log into a per-market
+  checkpoint in the `book_snapshots` table, bounding how far recovery has to
+  replay. Deploy it alongside the other roles (it is in both compose files).
+- On startup the engine loads the latest checkpoint, folds any newer events, and
+  seeds the book via the library's `WithInitialOrders` seam (no re-matching, no
+  re-run of the credit hook, no re-emitted events). The event sequence resumes
+  above the last recovered event so worker idempotency holds. **Reserved credits
+  never moved during the crash, so recovery touches no wallets.**
+
+Set `ENGINE_RECOVERY=cancel` to opt back into the old behaviour (cancel open
+orders and release reservations on restart). `ROLE=all` uses that fallback
+automatically beyond the checkpoint, since it has no durable log to tail.
+
+<Note>
+  Recovery is consistent up to the last checkpointed (and tail-folded) event.
+  A bit-exact alternative — a command write-ahead log replayed through matching —
+  is the documented next step.
+</Note>

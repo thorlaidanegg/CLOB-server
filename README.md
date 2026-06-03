@@ -189,7 +189,7 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 
 | Variable | Roles | Default | Description |
 |----------|-------|---------|-------------|
-| `ROLE` | all | — *(required)* | `engine`/`gateway`/`settlement`/`portfolio`/`leaderboard`/`feed`/`all` |
+| `ROLE` | all | — *(required)* | `engine`/`gateway`/`settlement`/`portfolio`/`leaderboard`/`feed`/`booksnapshot`/`all` |
 | `LOG_LEVEL` | all | `info` | `debug`/`info`/`warn`/`error` |
 | `ENVIRONMENT` | all | `local` | `local`/`staging`/`production` |
 | `POSTGRES_DSN` | most | — | Postgres connection string |
@@ -199,6 +199,7 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 | `ENGINE_GRPC_ADDR` | gateway | `localhost:50051` | Engine gRPC address |
 | `HTTP_PORT` | gateway | `8080` | HTTP listen port |
 | `MARKETS` | engine | — | Comma-separated market IDs to load at startup |
+| `ENGINE_RECOVERY` | engine | `replay` | `replay` (rebuild book from event-log checkpoint) or `cancel` (cancel open orders on restart) |
 | `RATE_LIMIT_RPM` | gateway | `300` | REST requests/min per key |
 | `RATE_LIMIT_WS_RPS` | gateway | `50` | WS messages/sec per connection |
 | `ADMIN_BOOTSTRAP_KEY` | gateway | — | If set and no admin key exists, seeds a bootstrap admin key on first run |

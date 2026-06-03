@@ -12,7 +12,7 @@ to `.env` and edit.
 
 | Variable | Roles | Default | Description |
 |----------|-------|---------|-------------|
-| `ROLE` | all | — *(required)* | `engine` · `gateway` · `settlement` · `portfolio` · `leaderboard` · `feed` · `all` |
+| `ROLE` | all | — *(required)* | `engine` · `gateway` · `settlement` · `portfolio` · `leaderboard` · `feed` · `booksnapshot` · `all` |
 | `LOG_LEVEL` | all | `info` | `debug` · `info` · `warn` · `error` |
 | `ENVIRONMENT` | all | `local` | `local` · `staging` · `production` |
 
@@ -32,6 +32,10 @@ to `.env` and edit.
 | `ENGINE_GRPC_ADDR` | gateway | `localhost:50051` | Engine gRPC address |
 | `HTTP_PORT` | gateway | `8080` | HTTP listen port |
 | `MARKETS` | engine | — | Comma-separated market IDs to load at startup |
+| `ENGINE_RECOVERY` | engine | `replay` | `replay` (rebuild the book from the event-log checkpoint) · `cancel` (cancel open orders on restart) |
+| `NODE_POOL_SIZE` | engine | `100000` | Pre-allocated order nodes per market |
+| `CMD_BUFFER_SIZE` | engine | `10000` | Command channel capacity per market |
+| `EVENT_BUFFER_SIZE` | engine | `50000` | Event channel capacity per market |
 | `RATE_LIMIT_RPM` | gateway | `300` | REST requests/min per key |
 | `RATE_LIMIT_WS_RPS` | gateway | `50` | WS messages/sec per connection |
 | `ADMIN_BOOTSTRAP_KEY` | gateway | — | If set and no admin key exists, seeds a bootstrap admin key on first run |

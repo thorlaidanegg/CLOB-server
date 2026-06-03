@@ -29,11 +29,11 @@ This is what makes each piece independently scalable and testable.
                 │  Event publisher → bus                │
                 └──────────────────┬───────────────────┘
                                    │ market-events (partitioned by marketID)
-        ┌──────────────┬───────────┴──────────┬──────────────┐
-        ▼              ▼                      ▼              ▼
-   Settlement      Portfolio             Leaderboard        Feed
-    (wallets)     (positions)            (Redis ZSET)    (WebSocket)
-     Postgres       Postgres                Redis        gateway WS
+     ┌───────────┬───────────┬──────┴──────┬───────────┬──────────────┐
+     ▼           ▼           ▼             ▼           ▼              ▼
+ Settlement  Portfolio   Leaderboard      Feed     BookSnapshot   (recovery
+  (wallets)  (positions) (Redis ZSET)  (WebSocket) (checkpoints)   reads these
+  Postgres    Postgres      Redis      gateway WS   Postgres        on restart)
 ```
 
 ## Roles
@@ -46,6 +46,7 @@ This is what makes each piece independently scalable and testable.
 | `portfolio` | Consumes fills → updates positions, average entry, realised PnL. |
 | `leaderboard` | Consumes sell fills → maintains a Redis sorted set of realised PnL. |
 | `feed` | Consumes all events → fans them out to subscribed WebSocket clients. |
+| `booksnapshot` | Folds the event log into a per-market book checkpoint (`book_snapshots`), bounding crash-recovery replay. |
 | `all` | Runs every role in one process using an **in-memory bus** (no Kafka). |
 
 ## Two ways to deploy the same binary
@@ -59,8 +60,9 @@ This is what makes each piece independently scalable and testable.
     Ideal for local development, demos, and small deployments.
 
     <Warning>
-      The order book is in memory and events are not durable across a restart of
-      that single process. Fine for dev — not for production.
+      The order book is in memory with no Kafka. It recovers from the durable
+      Postgres checkpoint on restart, but the last few un-checkpointed events
+      can't be tail-folded without a durable log. Fine for dev — not production.
     </Warning>
   </Tab>
   <Tab title="Split roles (production)">
@@ -91,10 +93,20 @@ This is what makes each piece independently scalable and testable.
   </Step>
   <Step title="Workers project the events">
     The publisher writes events to the bus. Settlement moves credits, portfolio
-    updates positions, leaderboard updates rankings, and feed pushes everything
-    to subscribed WebSocket clients.
+    updates positions, leaderboard updates rankings, feed pushes everything to
+    subscribed WebSocket clients, and booksnapshot checkpoints the resting book.
   </Step>
 </Steps>
+
+## Crash recovery
+
+The `market-events` log is the source of truth, so the engine rebuilds its book
+from it rather than from the Postgres projection. The **booksnapshot** worker keeps
+a compacted per-market checkpoint in `book_snapshots`; on restart the engine loads
+the latest checkpoint, folds any newer events, and reseeds the book via the
+library's `WithInitialOrders` seam — **open orders survive a restart** with no mass
+cancellation and no wallet changes. Set `ENGINE_RECOVERY=cancel` to opt back into
+cancel-on-restart. See [Deployment](/docs/guides/deployment#crash-recovery-event-sourced).
 
 ## Idempotency & exactly-once effect
 

@@ -23,9 +23,9 @@ ROLE=all docker compose up      # the whole stack in one process, no Kafka neede
 ## What you get
 
 <CardGroup cols={2}>
-  <Card title="One binary, seven roles" icon="layers">
-    `engine`, `gateway`, `settlement`, `portfolio`, `leaderboard`, `feed`, or
-    `all` — selected by the `ROLE` env var.
+  <Card title="One binary, eight roles" icon="layers">
+    `engine`, `gateway`, `settlement`, `portfolio`, `leaderboard`, `feed`,
+    `booksnapshot`, or `all` — selected by the `ROLE` env var.
   </Card>
   <Card title="Real order types" icon="list-checks">
     Limit, market, stop, stop-limit, iceberg; TIF GTC / IOC / FOK / GTD / DAY.
