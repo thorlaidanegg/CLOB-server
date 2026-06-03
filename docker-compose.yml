@@ -116,5 +116,19 @@ services:
       gateway: {condition: service_started}
     restart: on-failure
 
+  # Folds the event log into a durable per-market book checkpoint, bounding
+  # crash-recovery replay. Required for the engine to rebuild open orders on restart.
+  booksnapshot:
+    build: .
+    environment:
+      ROLE: booksnapshot
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_DSN: postgres://clob:clob@postgres:5432/clob?sslmode=disable
+      LOG_LEVEL: info
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: on-failure
+
 volumes:
   pgdata:

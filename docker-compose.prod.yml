@@ -147,6 +147,21 @@ services:
       gateway:  {condition: service_started}
     restart: unless-stopped
 
+  # Checkpoints the event log per market so the engine can rebuild open orders on
+  # restart (ENGINE_RECOVERY=replay). Without it, recovery falls back to cancel.
+  booksnapshot:
+    image: ${IMAGE:-clob-server:latest}
+    environment:
+      ROLE: booksnapshot
+      POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
+      KAFKA_BROKERS: redpanda:9092
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      ENVIRONMENT: production
+    depends_on:
+      postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
