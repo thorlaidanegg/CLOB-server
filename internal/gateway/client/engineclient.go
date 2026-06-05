@@ -12,9 +12,16 @@ import (
 	"github.com/thorlaidanegg/clob/events"
 	"github.com/thorlaidanegg/clob/types"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 )
+
+// engineCallTimeout bounds a single engine RPC. It must comfortably exceed a
+// cold connection setup (DNS + TCP + HTTP/2) so the first call after a dial or
+// an engine restart doesn't spuriously DeadlineExceed; the happy path still
+// returns in well under a millisecond.
+const engineCallTimeout = 2 * time.Second
 
 // retryServiceConfig retries transient "Unavailable" RPCs up to 3 times with
 // exponential backoff (applied by gRPC itself), per SERVER_LLD §5.
@@ -62,6 +69,23 @@ func NewEngineClient(addr, tlsCAFile string, orderStore ordersstore.Store) (*Eng
 	if err != nil {
 		return nil, fmt.Errorf("engine client: dial %s: %w", addr, err)
 	}
+
+	// grpc.NewClient connects lazily — the first RPC would otherwise pay the full
+	// connection-setup cost and blow its (tight) deadline. Trigger the dial now
+	// and best-effort wait for READY so the first real order is served warm.
+	conn.Connect()
+	warmCtx, cancelWarm := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelWarm()
+	for {
+		s := conn.GetState()
+		if s == connectivity.Ready {
+			break
+		}
+		if !conn.WaitForStateChange(warmCtx, s) {
+			break // not ready within the warm-up budget; lazy reconnect will cover it
+		}
+	}
+
 	return &EngineClient{
 		conn:       conn,
 		client:     enginev1.NewEngineServiceClient(conn),
@@ -74,7 +98,7 @@ func (c *EngineClient) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (P
 	if !c.breaker.allow() {
 		return PlaceOrderResponse{}, apierrors.ErrEngineUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, engineCallTimeout)
 	defer cancel()
 
 	resp, err := c.client.PlaceOrder(ctx, &enginev1.PlaceOrderRequest{
@@ -89,6 +113,7 @@ func (c *EngineClient) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (P
 		Tif:       req.TIF,
 		ExpireAt:  req.ExpireAt,
 		StpMode:   req.STPMode,
+		Flags:     req.Flags,
 	})
 	c.breaker.record(err)
 	if err != nil {
@@ -111,7 +136,7 @@ func (c *EngineClient) CancelOrder(ctx context.Context, orderID, userID string) 
 	if !c.breaker.allow() {
 		return apierrors.ErrEngineUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, engineCallTimeout)
 	defer cancel()
 	_, err = c.client.CancelOrder(ctx, &enginev1.CancelOrderRequest{
 		MarketId: order.MarketID,
@@ -126,7 +151,7 @@ func (c *EngineClient) GetDepth(ctx context.Context, marketID string, levels int
 	if !c.breaker.allow() {
 		return events.BookSnapshot{}, apierrors.ErrEngineUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, engineCallTimeout)
 	defer cancel()
 	resp, err := c.client.GetDepth(ctx, &enginev1.GetDepthRequest{
 		MarketId: marketID,
@@ -188,7 +213,7 @@ func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask st
 	if !c.breaker.allow() {
 		return "", "", apierrors.ErrEngineUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, engineCallTimeout)
 	defer cancel()
 	resp, err := c.client.GetBBO(ctx, &enginev1.GetBBORequest{MarketId: marketID})
 	c.breaker.record(err)
@@ -202,7 +227,7 @@ func (c *EngineClient) GetStats(ctx context.Context, marketID string) (MarketSta
 	if !c.breaker.allow() {
 		return MarketStats{}, apierrors.ErrEngineUnavailable
 	}
-	ctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(ctx, engineCallTimeout)
 	defer cancel()
 	resp, err := c.client.GetStats(ctx, &enginev1.GetStatsRequest{MarketId: marketID})
 	c.breaker.record(err)

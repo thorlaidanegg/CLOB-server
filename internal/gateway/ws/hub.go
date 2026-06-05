@@ -37,6 +37,13 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			h.connections[c.id] = c
 			h.mu.Unlock()
+			// Clients that authenticated via cookie before registering get their
+			// personal channels + auth_ok now that the connection is known.
+			if c.authed && c.userID != "" {
+				h.Subscribe(c.id, "orders:"+c.userID)
+				h.Subscribe(c.id, "portfolio:"+c.userID)
+				c.sendJSON(map[string]interface{}{"type": "auth_ok", "userID": c.userID})
+			}
 
 		case c := <-h.unregister:
 			h.mu.Lock()

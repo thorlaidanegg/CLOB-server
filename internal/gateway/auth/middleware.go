@@ -60,23 +60,33 @@ func ValidateKey(ctx context.Context, key string, pg *pgxpool.Pool, rdb *redis.C
 	return ac, nil
 }
 
-// Middleware extracts and validates the Bearer token from each request.
-func Middleware(pg *pgxpool.Pool, rdb *redis.Client) func(http.Handler) http.Handler {
+// Middleware authenticates each request. Browsers present a JWT session cookie;
+// bots present an `Authorization: Bearer <apiKey>`. Either resolves to an
+// AuthContext placed on the request context.
+func Middleware(pg *pgxpool.Pool, rdb *redis.Client, jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// 1. Session cookie (browser).
+			if token := ReadSessionToken(r); token != "" {
+				if claims, err := ParseSession(jwtSecret, token); err == nil {
+					ac := SessionAuthContext(claims)
+					next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), ac)))
+					return
+				}
+			}
+
+			// 2. Bearer API key (programmatic clients / bots).
 			authHeader := r.Header.Get("Authorization")
 			key := strings.TrimPrefix(authHeader, "Bearer ")
 			if key == "" || key == authHeader {
 				apierrors.WriteError(w, apierrors.ErrUnauthorized)
 				return
 			}
-
 			ac, err := ValidateKey(r.Context(), key, pg, rdb)
 			if err != nil {
 				apierrors.WriteError(w, err)
 				return
 			}
-
 			next.ServeHTTP(w, r.WithContext(WithContext(r.Context(), ac)))
 		})
 	}

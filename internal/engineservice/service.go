@@ -105,6 +105,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	publisher := NewEventPublisher(producer, log)
 	go publisher.Run(ctx, multi.AllEvents())
 
+	// Markets are created in PreOpen; open the ones marked open in the DB so
+	// orders actually match (otherwise they only rest).
+	ResumeOpenMarkets(ctx, multi, pool, log)
+
 	// Start gRPC server.
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.EngineGRPCPort))
 	if err != nil {

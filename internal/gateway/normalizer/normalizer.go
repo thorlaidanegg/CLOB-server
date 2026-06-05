@@ -25,7 +25,9 @@ type OrderParams struct {
 	DisplayQty string // decimal string; iceberg only
 	TIF        string // "GTC" | "IOC" | "FOK" | "GTD" | "DAY"; defaults to GTC
 	ExpireAt   string // RFC3339; GTD only; empty means no expiry
-	STPMode    string
+	STPMode    string // "cancel_both" | "cancel_maker" | "cancel_taker" | "decrement_cancel"
+	PostOnly   bool   // reject if the order would take liquidity (maker-only)
+	ReduceOnly bool   // reject if the order would increase the position
 }
 
 // BuildResult is what both REST and WS handlers need after normalisation.
@@ -51,10 +53,21 @@ func BuildPlaceRequest(userID string, p OrderParams, mkt pgstore.MarketRow) (Bui
 		return BuildResult{}, err
 	}
 	if p.TIF == "" {
-		p.TIF = "GTC"
+		// Market orders never rest — default them to IOC instead of GTC so they
+		// aren't rejected by the engine ("market orders cannot use resting TIF").
+		if p.OrderType == "market" {
+			p.TIF = "IOC"
+		} else {
+			p.TIF = "GTC"
+		}
 	}
 	if err := validateTIF(p.TIF); err != nil {
 		return BuildResult{}, err
+	}
+	// Reject a resting TIF on a market order up front (a clear 400) rather than
+	// letting the engine reject it asynchronously after a 202.
+	if p.OrderType == "market" && (p.TIF == "GTC" || p.TIF == "GTD" || p.TIF == "DAY") {
+		return BuildResult{}, fmt.Errorf("market orders must use IOC or FOK, not %s", p.TIF)
 	}
 	if p.Qty == "" {
 		return BuildResult{}, fmt.Errorf("qty is required")
@@ -117,6 +130,14 @@ func BuildPlaceRequest(userID string, p OrderParams, mkt pgstore.MarketRow) (Bui
 
 	orderID := NewOrderID()
 
+	var flags []string
+	if p.PostOnly {
+		flags = append(flags, "post_only")
+	}
+	if p.ReduceOnly {
+		flags = append(flags, "reduce_only")
+	}
+
 	engineReq := gatewayclient.PlaceOrderRequest{
 		OrderID:    orderID,
 		UserID:     userID,
@@ -130,6 +151,7 @@ func BuildPlaceRequest(userID string, p OrderParams, mkt pgstore.MarketRow) (Bui
 		TIF:        p.TIF,
 		ExpireAt:   expireAtNs,
 		STPMode:    p.STPMode,
+		Flags:      flags,
 	}
 
 	orderRow := ordersstore.OrderRow{
@@ -145,9 +167,23 @@ func BuildPlaceRequest(userID string, p OrderParams, mkt pgstore.MarketRow) (Bui
 		DisplayQty: displayQtyInt,
 		Status:     "new",
 		TIF:        p.TIF,
+		Flags:      orderRowFlags(p),
 	}
 
 	return BuildResult{EngineReq: engineReq, OrderRow: orderRow}, nil
+}
+
+// orderRowFlags mirrors the engine's OrderFlags bitfield for the stored row
+// (post_only = 1<<0, reduce_only = 1<<1) so the persisted order reflects intent.
+func orderRowFlags(p OrderParams) int {
+	var f int
+	if p.PostOnly {
+		f |= 1
+	}
+	if p.ReduceOnly {
+		f |= 2
+	}
+	return f
 }
 
 // NewOrderID generates a unique order ID. Format: ord_<16 random hex chars>.

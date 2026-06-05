@@ -1,4 +1,4 @@
-.PHONY: build test test-integration test-all lint run-dev test-db-up test-db-down
+.PHONY: build test test-integration test-all lint run-dev test-db-up test-db-down seed
 
 build:
 	go build -o bin/clob-server ./cmd/server
@@ -32,3 +32,7 @@ lint:
 
 run-dev:
 	docker compose up --build
+
+# Seed a couple of markets + a demo user (run after the stack is up).
+seed:
+	bash scripts/seed.sh

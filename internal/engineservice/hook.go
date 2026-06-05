@@ -60,6 +60,12 @@ func NewPostgresWalletHook(wallets wallet.Store, ordersStore ordersstore.Store, 
 
 // Validate dispatches to the buy or sell path.
 func (h *PostgresWalletHook) Validate(ctx hooks.OrderContext) hooks.ValidationResult {
+	// The engine may invoke the hook with a nil Context (it runs on the
+	// processor goroutine, off any request). Never hand a nil context to pgx /
+	// go-redis — puddle calls ctx.Done() and a nil context interface SIGSEGVs.
+	if ctx.Context == nil {
+		ctx.Context = context.Background()
+	}
 	if ctx.Side == types.Ask {
 		return h.validateSell(ctx)
 	}

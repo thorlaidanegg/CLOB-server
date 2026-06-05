@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	"github.com/thorlaidanegg/clob-server/internal/bus"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/admin"
 	"github.com/thorlaidanegg/clob-server/internal/shared/metrics"
 	redisstore "github.com/thorlaidanegg/clob-server/internal/store/redis"
@@ -56,40 +58,61 @@ func NewRouter(deps *Deps) http.Handler {
 	// Prometheus scrape endpoint. Expose only on a trusted network in production.
 	r.Handle("/metrics", metrics.Handler())
 
+	jwtSecret := deps.Cfg.JWTSecret
+	if jwtSecret == "" {
+		jwtSecret = "dev-insecure-secret-change-me"
+	}
+	authCfg := rest.AuthConfig{
+		JWTSecret:      jwtSecret,
+		Secure:         deps.Cfg.Environment == "production",
+		StarterCredits: deps.Cfg.SignupCredits,
+	}
+
 	r.Route("/v1", func(r chi.Router) {
-		r.Use(auth.Middleware(deps.PG, deps.Redis))
-		r.Use(ratelimit.Middleware(deps.Redis, deps.Cfg.RateLimitRPM))
+		// Public: signup / login / logout / me (the last self-checks the cookie).
+		r.Group(func(r chi.Router) {
+			r.Post("/auth/signup", rest.Signup(deps.PG, deps.WalletStore, authCfg))
+			r.Post("/auth/login", rest.Login(deps.PG, authCfg))
+			r.Post("/auth/logout", rest.Logout(authCfg))
+			r.Get("/auth/me", rest.Me(authCfg))
+		})
 
-		r.Post("/orders", rest.PlaceOrder(deps.PG, deps.OrderStore, deps.Engine))
-		r.Get("/orders", rest.ListOrders(deps.PG, deps.OrderStore))
-		r.Get("/orders/{id}", rest.GetOrder(deps.OrderStore))
-		r.Delete("/orders/{id}", rest.CancelOrder(deps.PG, deps.OrderStore, deps.Engine))
+		// Protected: JWT cookie (browser) or Bearer API key (bots).
+		r.Group(func(r chi.Router) {
+			r.Use(auth.Middleware(deps.PG, deps.Redis, jwtSecret))
+			r.Use(ratelimit.Middleware(deps.Redis, deps.Cfg.RateLimitRPM))
 
-		r.Get("/markets", rest.GetMarkets(deps.PG))
-		r.Get("/markets/{id}", rest.GetMarket(deps.PG))
-		r.Get("/markets/{id}/depth", rest.GetDepth(deps.Engine))
-		r.Get("/markets/{id}/trades", rest.GetTrades(deps.PG))
+			r.Post("/orders", rest.PlaceOrder(deps.PG, deps.OrderStore, deps.Engine))
+			r.Get("/orders", rest.ListOrders(deps.PG, deps.OrderStore))
+			r.Get("/orders/{id}", rest.GetOrder(deps.OrderStore))
+			r.Delete("/orders/{id}", rest.CancelOrder(deps.PG, deps.OrderStore, deps.Engine))
 
-		r.Get("/portfolio", rest.GetPortfolio(deps.PG, deps.Redis))
-		r.Get("/leaderboard", rest.GetLeaderboard(deps.PG, deps.Redis))
+			r.Get("/markets", rest.GetMarkets(deps.PG))
+			r.Get("/markets/{id}", rest.GetMarket(deps.PG))
+			r.Get("/markets/{id}/depth", rest.GetDepth(deps.Engine))
+			r.Get("/markets/{id}/trades", rest.GetTrades(deps.PG))
 
-		r.Post("/apikeys", rest.CreateAPIKey(deps.PG))
-		r.Get("/apikeys", rest.ListAPIKeys(deps.PG))
-		r.Delete("/apikeys/{id}", rest.RevokeAPIKey(deps.PG))
+			r.Get("/portfolio", rest.GetPortfolio(deps.PG, deps.Redis))
+			r.Get("/leaderboard", rest.GetLeaderboard(deps.PG, deps.Redis))
 
-		r.Route("/admin", func(r chi.Router) {
-			r.Use(auth.RequireScope("admin:all"))
-			r.Post("/markets", admin.CreateMarket(deps.PG))
-			r.Patch("/markets/{id}/halt", admin.HaltMarket(deps.PG))
-			r.Patch("/markets/{id}/resume", admin.ResumeMarket(deps.PG))
-			r.Get("/markets/{id}/stats", rest.GetMarketStats(deps.PG, deps.Engine))
-			r.Post("/users", admin.CreateUser(deps.PG))
-			r.Post("/users/{id}/credits", admin.CreditUser(deps.PG, deps.WalletStore))
-			r.Delete("/orders/{id}", admin.ForceCancelOrder(deps.OrderStore, deps.Engine, deps.Log))
+			r.Post("/apikeys", rest.CreateAPIKey(deps.PG))
+			r.Get("/apikeys", rest.ListAPIKeys(deps.PG))
+			r.Delete("/apikeys/{id}", rest.RevokeAPIKey(deps.PG))
+
+			r.Route("/admin", func(r chi.Router) {
+				r.Use(auth.RequireScope("admin:all"))
+				r.Post("/markets", admin.CreateMarket(deps.PG))
+				r.Patch("/markets/{id}/halt", admin.HaltMarket(deps.PG))
+				r.Patch("/markets/{id}/resume", admin.ResumeMarket(deps.PG))
+				r.Get("/markets/{id}/stats", rest.GetMarketStats(deps.PG, deps.Engine))
+				r.Post("/users", admin.CreateUser(deps.PG))
+				r.Post("/users/{id}/credits", admin.CreditUser(deps.PG, deps.WalletStore))
+				r.Delete("/orders/{id}", admin.ForceCancelOrder(deps.OrderStore, deps.Engine, deps.Log))
+			})
 		})
 	})
 
-	r.Get("/v1/stream", ws.ServeWS(deps.Hub, deps.Engine, deps.PG, deps.Redis, deps.OrderStore, deps.Cfg.RateLimitWSRPS))
+	r.Get("/v1/stream", ws.ServeWS(deps.Hub, deps.Engine, deps.PG, deps.Redis, deps.OrderStore, jwtSecret, deps.Cfg.RateLimitWSRPS))
 
 	return r
 }
@@ -125,6 +148,19 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 
 	hub := ws.NewHub()
 	go hub.Run()
+
+	// Feed: consume market-events and fan out to WebSocket clients. Each gateway
+	// instance uses its own consumer group so it receives every event (broadcast
+	// semantics, not competing consumers).
+	if len(cfg.KafkaBrokers) > 0 {
+		host, _ := os.Hostname()
+		fc, ferr := bus.NewKafkaConsumer(cfg.KafkaBrokers, "gateway-feed-"+host)
+		if ferr != nil {
+			log.Error().Err(ferr).Msg("gateway: feed consumer — live WS feed disabled")
+		} else {
+			go ws.NewBroadcaster(fc, hub, log).Run(ctx)
+		}
+	}
 
 	deps := &Deps{
 		PG:          pool,

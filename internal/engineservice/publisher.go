@@ -25,10 +25,13 @@ func NewEventPublisher(producer bus.Producer, logger zerolog.Logger) *EventPubli
 
 // Run reads events until evts is closed or ctx is done.
 func (p *EventPublisher) Run(ctx context.Context, evts <-chan events.Event) {
+	p.logger.Info().Msg("engine: event publisher started")
+	var published uint64
 	for {
 		select {
 		case ev, ok := <-evts:
 			if !ok {
+				p.logger.Warn().Uint64("published", published).Msg("engine: event channel closed; publisher exiting")
 				return
 			}
 			payload, err := json.Marshal(ev)
@@ -47,6 +50,11 @@ func (p *EventPublisher) Run(ctx context.Context, evts <-chan events.Event) {
 			}
 			if err := p.producer.Publish(ctx, msg); err != nil {
 				p.logger.Error().Err(err).Str("type", ev.Type()).Msg("failed to publish event")
+			} else {
+				published++
+				if published == 1 || published%100 == 0 {
+					p.logger.Info().Uint64("published", published).Str("type", ev.Type()).Msg("engine: published event")
+				}
 			}
 		case <-ctx.Done():
 			return

@@ -24,11 +24,13 @@ type PlaceOrderRequest struct {
 }
 
 // PlaceOrderResponse is returned after submitting an order.
+// PlaceOrderResponse is returned to REST/WS clients; JSON tags are camelCase to
+// match the API contract (see api/openapi.yaml).
 type PlaceOrderResponse struct {
-	OrderID string
-	SeqNum  uint64
-	Status  string
-	Reason  string
+	OrderID string `json:"orderID"`
+	SeqNum  uint64 `json:"seqNum"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
 }
 
 // MarketStats holds engine resource utilization for a single market.

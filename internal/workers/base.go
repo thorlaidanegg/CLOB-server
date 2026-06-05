@@ -145,6 +145,9 @@ func (w *WorkerRunner) Run(ctx context.Context) {
 
 		// Idempotency check.
 		if seqNum > 0 && seqNum <= w.lastSeqs[marketID] {
+			w.logger.Debug().Str("worker", w.workerName).Str("type", eventType).
+				Str("market", marketID).Uint64("seq", seqNum).Uint64("lastSeq", w.lastSeqs[marketID]).
+				Msg("worker: skip (idempotent)")
 			w.consumer.Commit(ctx, msg)
 			continue
 		}

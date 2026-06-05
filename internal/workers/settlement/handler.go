@@ -46,7 +46,15 @@ func (h *Handler) HandleEvent(ctx context.Context, tx pgx.Tx, env workers.EventE
 		if !ok {
 			return nil
 		}
-		return h.handleOrderCanceled(ctx, tx, ev)
+		return h.closeOrder(ctx, tx, string(ev.OrderID), string(ev.MarketID()), "canceled")
+	case events.TypeOrderExpired:
+		ev, ok := env.Event.(*events.OrderExpired)
+		if !ok {
+			return nil
+		}
+		// A GTD/DAY order that timed out: release its reservation exactly like a
+		// cancel (otherwise the buyer's reserved credits leak).
+		return h.closeOrder(ctx, tx, string(ev.OrderID), string(ev.MarketID()), "expired")
 	case events.TypeOrderRejected:
 		ev, ok := env.Event.(*events.OrderRejected)
 		if !ok {
@@ -168,18 +176,21 @@ func (h *Handler) settleSeller(ctx context.Context, tx pgx.Tx, fill *events.Trad
 	return nil
 }
 
-func (h *Handler) handleOrderCanceled(ctx context.Context, tx pgx.Tx, ev *events.OrderCanceled) error {
-	order, err := h.orderStore.GetOrder(ctx, string(ev.OrderID))
+// closeOrder releases an open order's outstanding reservation and marks it with
+// the terminal status. Shared by cancel and expiry — both free the remaining
+// reserved credits (buys only; sells reserved nothing) and close the order.
+func (h *Handler) closeOrder(ctx context.Context, tx pgx.Tx, orderID, marketID, status string) error {
+	order, err := h.orderStore.GetOrder(ctx, orderID)
 	if err != nil {
-		return fmt.Errorf("settlement: get canceled order: %w", err)
+		return fmt.Errorf("settlement: get %s order: %w", status, err)
 	}
 
 	// Only buys reserved credits (reserved_per_unit > 0). Sells reserved nothing,
 	// so there is nothing to release — never fall back to price × qty for a sell.
 	if order.ReservedPerUnit > 0 {
-		market, err := pgstore.GetMarket(ctx, h.pool, string(ev.MarketID()))
+		market, err := pgstore.GetMarket(ctx, h.pool, marketID)
 		if err != nil {
-			return fmt.Errorf("settlement: get market for cancel: %w", err)
+			return fmt.Errorf("settlement: get market for %s: %w", status, err)
 		}
 		qty := types.NewDecimal(order.RemainQty, market.QtyPrecision)
 		reservedPerUnit := types.NewDecimal(order.ReservedPerUnit, market.PricePrecision)
@@ -194,15 +205,15 @@ func (h *Handler) handleOrderCanceled(ctx context.Context, tx pgx.Tx, ev *events
 			 WHERE user_id=$1`,
 			order.UserID, release.Value(),
 		); err != nil {
-			return fmt.Errorf("settlement: cancel wallet release: %w", err)
+			return fmt.Errorf("settlement: %s wallet release: %w", status, err)
 		}
 	}
 
 	if _, err := tx.Exec(ctx,
-		`UPDATE orders SET status='canceled', updated_at=now() WHERE order_id=$1`,
-		order.OrderID,
+		`UPDATE orders SET status=$2, updated_at=now() WHERE order_id=$1`,
+		order.OrderID, status,
 	); err != nil {
-		return fmt.Errorf("settlement: cancel order status: %w", err)
+		return fmt.Errorf("settlement: %s order status: %w", status, err)
 	}
 	return nil
 }

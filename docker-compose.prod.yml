@@ -72,9 +72,13 @@ services:
       ENGINE_GRPC_ADDR: engine:50051
       POSTGRES_DSN: ${POSTGRES_DSN:?POSTGRES_DSN required}
       REDIS_ADDR: redis:6379
+      KAFKA_BROKERS: redpanda:9092   # gateway consumes market-events to feed WS clients
       HTTP_PORT: "8080"
       RATE_LIMIT_RPM: ${RATE_LIMIT_RPM:-300}
       RATE_LIMIT_WS_RPS: ${RATE_LIMIT_WS_RPS:-50}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET required}
+      SIGNUP_CREDITS: ${SIGNUP_CREDITS:-100000.00}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENVIRONMENT: production
       # ADMIN_BOOTSTRAP_KEY should be unset or empty in production.
@@ -85,6 +89,7 @@ services:
       engine:   {condition: service_started}
       redis:    {condition: service_healthy}
       postgres: {condition: service_healthy}
+      redpanda: {condition: service_healthy}
     restart: unless-stopped
 
   settlement:

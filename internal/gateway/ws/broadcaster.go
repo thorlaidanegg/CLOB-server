@@ -45,17 +45,21 @@ func (b *Broadcaster) Run(ctx context.Context) {
 		eventType := msg.Headers["event-type"]
 		marketID := msg.Key
 
+		emit := func(channel string) {
+			b.hub.Broadcast(channel, envelope(channel, eventType, msg.Value))
+		}
+
 		switch eventType {
 		case events.TypeDepthUpdate:
-			b.hub.Broadcast("depth:"+marketID, msg.Value)
+			emit("depth:" + marketID)
 		case events.TypeTradeExecuted:
-			b.hub.Broadcast("trades:"+marketID, msg.Value)
+			emit("trades:" + marketID)
 		case events.TypeTradeFill:
 			var ev events.TradeFill
 			if err := json.Unmarshal(msg.Value, &ev); err == nil {
 				uid := string(ev.UserID)
-				b.hub.Broadcast("orders:"+uid, msg.Value)
-				b.hub.Broadcast("portfolio:"+uid, msg.Value)
+				emit("orders:" + uid)
+				emit("portfolio:" + uid)
 			}
 		case events.TypeOrderRested, events.TypeOrderCanceled,
 			events.TypeOrderRejected, events.TypeOrderExpired, events.TypeOrderAccepted:
@@ -63,10 +67,21 @@ func (b *Broadcaster) Run(ctx context.Context) {
 				UserID string `json:"userID"`
 			}
 			if err := json.Unmarshal(msg.Value, &base); err == nil && base.UserID != "" {
-				b.hub.Broadcast("orders:"+base.UserID, msg.Value)
+				emit("orders:" + base.UserID)
 			}
 		case events.TypeMarketHalted, events.TypeMarketResumed:
-			b.hub.Broadcast("markets", msg.Value)
+			emit("markets")
 		}
 	}
+}
+
+// envelope wraps a raw event in { channel, type, data } so browser clients can
+// route it (the raw event JSON carries no channel/type discriminator).
+func envelope(channel, eventType string, raw []byte) []byte {
+	b, _ := json.Marshal(struct {
+		Channel string          `json:"channel"`
+		Type    string          `json:"type"`
+		Data    json.RawMessage `json:"data"`
+	}{Channel: channel, Type: eventType, Data: raw})
+	return b
 }

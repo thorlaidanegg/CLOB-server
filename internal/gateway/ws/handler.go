@@ -8,13 +8,16 @@ import (
 	"github.com/coder/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
+	"github.com/thorlaidanegg/clob-server/internal/gateway/auth"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/client"
 	"github.com/thorlaidanegg/clob-server/internal/gateway/ratelimit"
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 )
 
 // ServeWS upgrades an HTTP connection to WebSocket and registers it with the hub.
-func ServeWS(hub *Hub, engine client.EngineAdapter, pg *pgxpool.Pool, rdb *redis.Client, orderStore ordersstore.Store, limitRPS int) http.HandlerFunc {
+// Browsers authenticate via the JWT session cookie at upgrade; bots may instead
+// send an {"type":"auth","apiKey":...} frame within 10 seconds.
+func ServeWS(hub *Hub, engine client.EngineAdapter, pg *pgxpool.Pool, rdb *redis.Client, orderStore ordersstore.Store, jwtSecret string, limitRPS int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 			InsecureSkipVerify: true,
@@ -36,12 +39,24 @@ func ServeWS(hub *Hub, engine client.EngineAdapter, pg *pgxpool.Pool, rdb *redis
 			limiter:    ratelimit.NewWSLimiter(limitRPS),
 		}
 
-		// Close unauthenticated connections after 10 seconds.
-		c.authTimeout = time.AfterFunc(10*time.Second, func() {
-			if !c.authed {
-				conn.Close(websocket.StatusPolicyViolation, "auth timeout")
+		// Cookie auth: if the browser presented a valid session, mark the client
+		// authed before registering. The hub auto-subscribes it to its personal
+		// channels (orders/portfolio) and emits auth_ok once registered.
+		if token := auth.ReadSessionToken(r); token != "" {
+			if claims, perr := auth.ParseSession(jwtSecret, token); perr == nil {
+				c.authed = true
+				c.userID = claims.UserID
 			}
-		})
+		}
+
+		// Bots that didn't cookie-auth have 10s to send an auth frame.
+		if !c.authed {
+			c.authTimeout = time.AfterFunc(10*time.Second, func() {
+				if !c.authed {
+					conn.Close(websocket.StatusPolicyViolation, "auth timeout")
+				}
+			})
+		}
 
 		hub.register <- c
 		ctx := r.Context()

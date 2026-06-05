@@ -19,6 +19,10 @@ func NewKafkaProducer(brokers []string) (*KafkaProducer, error) {
 	client, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
+		// Let the first produce create the topic if an operator hasn't pre-created
+		// it (the broker must also permit auto-create). Without this a fresh
+		// cluster rejects every event with UNKNOWN_TOPIC_OR_PARTITION.
+		kgo.AllowAutoTopicCreation(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("kafka producer: %w", err)
@@ -46,8 +50,14 @@ func (p *KafkaProducer) Close() error {
 }
 
 // KafkaConsumer implements Consumer using franz-go with manual commits.
+//
+// A single PollFetches returns a *batch* of records. Poll hands them back one at
+// a time from buf so callers (which process one Message per call) never lose the
+// rest of a batch — critical because a single trade emits a burst of events
+// (accepts, fills, trade_executed, depth) that arrive in one fetch.
 type KafkaConsumer struct {
 	client *kgo.Client
+	buf    []Message
 }
 
 // NewKafkaConsumer creates a Kafka consumer in the given group.
@@ -56,6 +66,7 @@ func NewKafkaConsumer(brokers []string, groupID string) (*KafkaConsumer, error) 
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(groupID),
 		kgo.DisableAutoCommit(),
+		kgo.AllowAutoTopicCreation(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("kafka consumer: %w", err)
@@ -96,6 +107,13 @@ func (c *KafkaConsumer) SeekToOffset(partition int32, offset int64) error {
 }
 
 func (c *KafkaConsumer) Poll(ctx context.Context) (Message, error) {
+	// Drain the buffered batch first so no record in a fetch is ever dropped.
+	if len(c.buf) > 0 {
+		msg := c.buf[0]
+		c.buf = c.buf[1:]
+		return msg, nil
+	}
+
 	fetches := c.client.PollFetches(ctx)
 	if fetches.IsClientClosed() {
 		return Message{}, fmt.Errorf("kafka consumer closed")
@@ -103,25 +121,34 @@ func (c *KafkaConsumer) Poll(ctx context.Context) (Message, error) {
 	if err := fetches.Err(); err != nil {
 		return Message{}, fmt.Errorf("kafka poll: %w", err)
 	}
-	var msg Message
+
 	fetches.EachRecord(func(r *kgo.Record) {
 		headers := make(map[string]string, len(r.Headers))
 		for _, h := range r.Headers {
 			headers[h.Key] = string(h.Value)
 		}
+		var seqNum uint64
 		if seq, err := strconv.ParseUint(headers["seq-num"], 10, 64); err == nil {
-			msg.SeqNum = seq
+			seqNum = seq
 		}
-		msg = Message{
+		c.buf = append(c.buf, Message{
 			Topic:     r.Topic,
 			Key:       string(r.Key),
 			Value:     r.Value,
 			Headers:   headers,
 			Offset:    r.Offset,
 			Partition: r.Partition,
-			SeqNum:    msg.SeqNum,
-		}
+			SeqNum:    seqNum,
+		})
 	})
+
+	if len(c.buf) == 0 {
+		// Empty fetch (poll timeout / ctx). Return an empty message; the caller's
+		// deserialize step treats it as an unknown event and moves on.
+		return Message{}, nil
+	}
+	msg := c.buf[0]
+	c.buf = c.buf[1:]
 	return msg, nil
 }
 

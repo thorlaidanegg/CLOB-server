@@ -27,6 +27,9 @@ func corsMiddleware(allowed []string) func(http.Handler) http.Handler {
 				} else {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Add("Vary", "Origin")
+					// A specific origin (not "*") can carry credentials — required
+					// for the browser to send the JWT session cookie.
+					w.Header().Set("Access-Control-Allow-Credentials", "true")
 				}
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")

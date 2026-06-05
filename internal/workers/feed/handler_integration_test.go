@@ -45,7 +45,7 @@ func TestFeedHandler_RoutesToChannels(t *testing.T) {
 
 	hub := ws.NewHub()
 	go hub.Run()
-	srv := httptest.NewServer(ws.ServeWS(hub, &testsupport.FakeEngine{}, pool, rdb, ordersstore.NewPgStore(pool), 50))
+	srv := httptest.NewServer(ws.ServeWS(hub, &testsupport.FakeEngine{}, pool, rdb, ordersstore.NewPgStore(pool), "test-secret", 50))
 	defer srv.Close()
 	url := "ws" + strings.TrimPrefix(srv.URL, "http")
 

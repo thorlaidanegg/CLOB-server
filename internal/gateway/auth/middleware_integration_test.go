@@ -95,7 +95,7 @@ func TestMiddleware_HeaderHandling(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusOK)
 	})
-	handler := auth.Middleware(pool, rdb)(next)
+	handler := auth.Middleware(pool, rdb, "test-secret")(next)
 
 	cases := []struct {
 		name     string

@@ -5,11 +5,35 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/rs/zerolog"
 	clobconfig "github.com/thorlaidanegg/clob/config"
+	"github.com/thorlaidanegg/clob/engine"
 	"github.com/thorlaidanegg/clob/types"
 
 	pgstore "github.com/thorlaidanegg/clob-server/internal/store/postgres"
 )
+
+// ResumeOpenMarkets transitions every market whose DB state is "open" from the
+// engine's default PreOpen state into Open, so resting orders actually match.
+// Markets are created in PreOpen (orders rest without matching); without this an
+// open market would silently never cross. Halted markets are left as-is.
+func ResumeOpenMarkets(ctx context.Context, multi *engine.MultiEngine, pool *pgxpool.Pool, log zerolog.Logger) {
+	rows, err := pgstore.ListMarkets(ctx, pool)
+	if err != nil {
+		log.Error().Err(err).Msg("engine: resume markets: list")
+		return
+	}
+	for _, r := range rows {
+		if r.State != "open" {
+			continue
+		}
+		if err := multi.Submit(engine.AdminResumeMarket{MarketID: types.MarketID(r.MarketID)}); err != nil {
+			log.Error().Err(err).Str("market", r.MarketID).Msg("engine: resume market")
+			continue
+		}
+		log.Info().Str("market", r.MarketID).Msg("engine: market opened")
+	}
+}
 
 // LoadMarkets reads all markets from Postgres and converts them to MarketConfig structs.
 func LoadMarkets(ctx context.Context, pool *pgxpool.Pool) ([]clobconfig.MarketConfig, error) {

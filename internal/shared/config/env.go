@@ -31,6 +31,11 @@ type Config struct {
 
 	AdminBootstrapKey string
 
+	// Browser auth (cookie-JWT). JWTSecret signs session tokens; SignupCredits is
+	// the starter balance granted to a new user on signup.
+	JWTSecret     string
+	SignupCredits string
+
 	// EngineRecovery selects how the engine rebuilds book state on restart:
 	// "replay" (default) rebuilds each market from the event-log checkpoint;
 	// "cancel" cancels all open orders and releases their reservations.
@@ -71,6 +76,9 @@ func LoadFromEnv() *Config {
 		EventBufferSize: envInt("EVENT_BUFFER_SIZE", 50000),
 
 		AdminBootstrapKey: os.Getenv("ADMIN_BOOTSTRAP_KEY"),
+
+		JWTSecret:     envOr("JWT_SECRET", "dev-insecure-secret-change-me"),
+		SignupCredits: envOr("SIGNUP_CREDITS", "100000.00"),
 
 		EngineRecovery: envOr("ENGINE_RECOVERY", "replay"),
 

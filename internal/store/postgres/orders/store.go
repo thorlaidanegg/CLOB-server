@@ -9,23 +9,25 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// OrderRow mirrors the orders table.
+// OrderRow mirrors the orders table. JSON tags are camelCase to match the API
+// contract. Price/quantity fields are RAW integers at the market's precision —
+// the client converts them with the market's pricePrecision/qtyPrecision.
 type OrderRow struct {
-	OrderID         string
-	UserID          string
-	MarketID        string
-	Side            string
-	OrderType       string
-	Price           int64
-	StopPrice       int64
-	OrigQty         int64
-	RemainQty       int64
-	FilledQty       int64
-	DisplayQty      int64
-	Status          string
-	TIF             string
-	Flags           int
-	ReservedPerUnit int64
+	OrderID         string `json:"orderID"`
+	UserID          string `json:"userID"`
+	MarketID        string `json:"marketID"`
+	Side            string `json:"side"`
+	OrderType       string `json:"orderType"`
+	Price           int64  `json:"price"`
+	StopPrice       int64  `json:"stopPrice"`
+	OrigQty         int64  `json:"origQty"`
+	RemainQty       int64  `json:"remainQty"`
+	FilledQty       int64  `json:"filledQty"`
+	DisplayQty      int64  `json:"displayQty"`
+	Status          string `json:"status"`
+	TIF             string `json:"tif"`
+	Flags           int    `json:"flags"`
+	ReservedPerUnit int64  `json:"reservedPerUnit"`
 }
 
 // Store defines order persistence operations.

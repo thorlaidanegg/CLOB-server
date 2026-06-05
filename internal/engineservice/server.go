@@ -84,6 +84,7 @@ func (s *EngineServer) placeOrder(req *enginev1.PlaceOrderRequest, mc clobconfig
 			MarketID: types.MarketID(req.MarketId), OrderID: types.OrderID(req.OrderId),
 			UserID: types.UserID(req.UserId), Side: side, Price: price, Qty: qty,
 			DisplayQty: displayQty, TIF: tif, ExpireAt: req.ExpireAt,
+			Flags: parseOrderFlags(req.Flags), STPMode: parseSTPMode(req.StpMode),
 		}); err != nil {
 			return "", "", "", err
 		}
@@ -96,6 +97,7 @@ func (s *EngineServer) placeOrder(req *enginev1.PlaceOrderRequest, mc clobconfig
 		if err := s.multi.Submit(engine.PlaceMarketOrder{
 			MarketID: types.MarketID(req.MarketId), OrderID: types.OrderID(req.OrderId),
 			UserID: types.UserID(req.UserId), Side: side, Qty: qty, TIF: tif,
+			Flags: parseOrderFlags(req.Flags), STPMode: parseSTPMode(req.StpMode),
 		}); err != nil {
 			return "", "", "", err
 		}
@@ -123,6 +125,7 @@ func (s *EngineServer) placeOrder(req *enginev1.PlaceOrderRequest, mc clobconfig
 			UserID: types.UserID(req.UserId), Side: side, TriggerPrice: stopPrice,
 			LimitPrice: limitPrice, Qty: qty, ConvertTo: convertTo,
 			TIF: tif, ExpireAt: req.ExpireAt,
+			Flags: parseOrderFlags(req.Flags), STPMode: parseSTPMode(req.StpMode),
 		}); err != nil {
 			return "", "", "", err
 		}
@@ -132,6 +135,38 @@ func (s *EngineServer) placeOrder(req *enginev1.PlaceOrderRequest, mc clobconfig
 	}
 
 	return req.OrderId, "accepted", "", nil
+}
+
+// parseOrderFlags maps the wire flag strings to the engine's OrderFlags bitfield.
+// Unknown flags are ignored. (Iceberg is driven by DisplayQty, not a flag here.)
+func parseOrderFlags(flags []string) types.OrderFlags {
+	var f types.OrderFlags
+	for _, s := range flags {
+		switch s {
+		case "post_only":
+			f = f.Set(types.FlagPostOnly)
+		case "reduce_only":
+			f = f.Set(types.FlagReduceOnly)
+		}
+	}
+	return f
+}
+
+// parseSTPMode maps a per-order self-trade-prevention mode string to the engine
+// enum. Empty/unknown means "use the market default" (STPDisabled here).
+func parseSTPMode(s string) clobconfig.STPMode {
+	switch s {
+	case "cancel_both":
+		return clobconfig.STPCancelBoth
+	case "cancel_maker":
+		return clobconfig.STPCancelMaker
+	case "cancel_taker":
+		return clobconfig.STPCancelTaker
+	case "decrement_cancel":
+		return clobconfig.STPDecrementCancel
+	default:
+		return clobconfig.STPDisabled
+	}
 }
 
 func (s *EngineServer) CancelOrder(_ context.Context, req *enginev1.CancelOrderRequest) (*enginev1.CancelOrderResponse, error) {

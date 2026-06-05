@@ -41,7 +41,7 @@ func startWSServer(t *testing.T, pool *pgxpool.Pool) string {
 	rdb := testsupport.RequireMiniRedis(t)
 	hub := ws.NewHub()
 	go hub.Run()
-	handler := ws.ServeWS(hub, &testsupport.FakeEngine{}, pool, rdb, ordersstore.NewPgStore(pool), 50)
+	handler := ws.ServeWS(hub, &testsupport.FakeEngine{}, pool, rdb, ordersstore.NewPgStore(pool), "test-secret", 50)
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 	return "ws" + strings.TrimPrefix(srv.URL, "http")

@@ -18,28 +18,29 @@ type FeeTierRow struct {
 	TakerFeeRate string `json:"takerFeeRate"`
 }
 
-// MarketRow mirrors the markets table.
+// MarketRow mirrors the markets table. JSON tags match the API contract
+// (camelCase, see api/openapi.yaml) for both responses and the admin create body.
 type MarketRow struct {
-	MarketID       string
-	BaseAsset      string
-	QuoteAsset     string
-	PricePrecision uint8
-	QtyPrecision   uint8
-	TickSize       int64
-	LotSize        int64
-	MinOrderQty    int64
-	MaxOrderQty    int64
-	MaxOrderValue  int64
-	MaxDepth       int
-	Features       int
-	STPMode        string
-	MakerFeeRate   int64
-	TakerFeeRate   int64
-	FeeCurrency    string
-	FeeModel       string
-	FeeTiers       []FeeTierRow
-	State          string
-	CreatedBy      string
+	MarketID       string       `json:"marketID"`
+	BaseAsset      string       `json:"baseAsset"`
+	QuoteAsset     string       `json:"quoteAsset"`
+	PricePrecision uint8        `json:"pricePrecision"`
+	QtyPrecision   uint8        `json:"qtyPrecision"`
+	TickSize       int64        `json:"tickSize"`
+	LotSize        int64        `json:"lotSize"`
+	MinOrderQty    int64        `json:"minOrderQty"`
+	MaxOrderQty    int64        `json:"maxOrderQty"`
+	MaxOrderValue  int64        `json:"maxOrderValue"`
+	MaxDepth       int          `json:"maxDepth"`
+	Features       int          `json:"features"`
+	STPMode        string       `json:"stpMode"`
+	MakerFeeRate   int64        `json:"makerFeeRate"`
+	TakerFeeRate   int64        `json:"takerFeeRate"`
+	FeeCurrency    string       `json:"feeCurrency"`
+	FeeModel       string       `json:"feeModel"`
+	FeeTiers       []FeeTierRow `json:"feeTiers,omitempty"`
+	State          string       `json:"state"`
+	CreatedBy      string       `json:"createdBy"`
 }
 
 const marketCols = `market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),

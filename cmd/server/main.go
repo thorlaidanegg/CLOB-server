@@ -123,6 +123,9 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 	inMemBus := bus.NewInMemBus()
 	go engineservice.NewEventPublisher(inMemBus, log).Run(ctx, multi.AllEvents())
 
+	// Open markets flagged open in the DB (engine creates them in PreOpen).
+	engineservice.ResumeOpenMarkets(ctx, multi, pool, log)
+
 	hub := ws.NewHub()
 	go hub.Run()
 	go ws.NewBroadcaster(inMemBus.NewConsumer(), hub, log).Run(ctx)
@@ -141,8 +144,8 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 	}
 	go workers.NewWorkerRunner("leaderboard", "market-events", pool, inMemBus.NewConsumer(), lbHandler, log).Run(ctx)
 
-	feedHandler := feedworker.New(hub, rdb, log)
-	go workers.NewWorkerRunner("feed", "market-events", pool, inMemBus.NewConsumer(), feedHandler, log).Run(ctx)
+	// WS fan-out to clients is handled by the Broadcaster above; the separate feed
+	// worker would double-deliver in this single-process mode, so it is omitted here.
 
 	// Book-snapshot checkpoints. In ROLE=all the in-memory bus loses events on
 	// restart, so recovery still falls back to cancel; the worker keeps the
