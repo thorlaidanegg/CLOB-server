@@ -36,3 +36,9 @@ run-dev:
 # Seed a couple of markets + a demo user (run after the stack is up).
 seed:
 	bash scripts/seed.sh
+
+# Repair wallet/order state from dead-lettered settlement events. DRY RUN by
+# default; APPLY=1 to commit. Runs inside the compose network (needs the image
+# rebuilt so /app/reconcile exists: `docker compose build`).
+reconcile:
+	docker compose run --rm --no-deps --entrypoint /app/reconcile gateway $(if $(APPLY),-apply)

@@ -75,8 +75,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/thorlaidanegg/clob v0.9.0 h1:ye9+YjQUBDLpPT1ubmPbSSfCtsku3sP+vBs8R5f2Jk8=
-github.com/thorlaidanegg/clob v0.9.0/go.mod h1:XryyQvPW2Yl9YUa3Z0UZFeslb4IjkvZIvbVu7ub0EmQ=
+github.com/thorlaidanegg/clob v1.0.0 h1:E/52GurHUgHMNKQHPCy1/YY7NatD53wmzzoyWwQYtSc=
+github.com/thorlaidanegg/clob v1.0.0/go.mod h1:XryyQvPW2Yl9YUa3Z0UZFeslb4IjkvZIvbVu7ub0EmQ=
 github.com/tidwall/btree v1.7.0 h1:L1fkJH/AuEh5zBnnBbmTwQ5Lt+bRJ5A8EWecslvo9iI=
 github.com/tidwall/btree v1.7.0/go.mod h1:twD9XRA5jj9VUQGELzDO4HPQTNJsoWWfYEL+EUQ2cKY=
 github.com/twmb/franz-go v1.21.2 h1:WrvV/spF48JzcRylqDQy02Vm6V6W4lhtD9Y4BOYNMu4=

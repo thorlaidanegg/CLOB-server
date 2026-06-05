@@ -22,36 +22,36 @@ type TradeRow struct {
 	TakerFee      int64
 	FeeCurrency   string
 	SeqNum        int64
-	CreatedAt     string
+	CreatedAt     string // read-only: ISO string from the DB
+	ExecutedAtNs  int64  // write-only: engine execution time (unix ns); 0 ⇒ now()
 }
 
 // InsertTrade writes a single trade record. Ignores duplicate trade_id (idempotent).
 func InsertTrade(ctx context.Context, pool *pgxpool.Pool, t TradeRow) error {
-	_, err := pool.Exec(ctx,
-		`INSERT INTO trades
-		 (trade_id, market_id, maker_order_id, taker_order_id, maker_user_id, taker_user_id,
-		  maker_side, price, qty, maker_fee, taker_fee, fee_currency, seq_num)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		 ON CONFLICT (trade_id, market_id) DO NOTHING`,
+	_, err := pool.Exec(ctx, insertTradeSQL,
 		t.TradeID, t.MarketID, t.MakerOrderID, t.TakerOrderID, t.MakerUserID, t.TakerUserID,
-		t.MakerSide, t.Price, t.Qty, t.MakerFee, t.TakerFee, t.FeeCurrency, t.SeqNum,
+		t.MakerSide, t.Price, t.Qty, t.MakerFee, t.TakerFee, t.FeeCurrency, t.SeqNum, t.ExecutedAtNs,
 	)
 	return err
 }
 
 // InsertTradeTx writes a trade record inside an existing transaction.
 func InsertTradeTx(ctx context.Context, tx pgx.Tx, t TradeRow) error {
-	_, err := tx.Exec(ctx,
-		`INSERT INTO trades
-		 (trade_id, market_id, maker_order_id, taker_order_id, maker_user_id, taker_user_id,
-		  maker_side, price, qty, maker_fee, taker_fee, fee_currency, seq_num)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-		 ON CONFLICT (trade_id, market_id) DO NOTHING`,
+	_, err := tx.Exec(ctx, insertTradeSQL,
 		t.TradeID, t.MarketID, t.MakerOrderID, t.TakerOrderID, t.MakerUserID, t.TakerUserID,
-		t.MakerSide, t.Price, t.Qty, t.MakerFee, t.TakerFee, t.FeeCurrency, t.SeqNum,
+		t.MakerSide, t.Price, t.Qty, t.MakerFee, t.TakerFee, t.FeeCurrency, t.SeqNum, t.ExecutedAtNs,
 	)
 	return err
 }
+
+// insertTradeSQL stores created_at as the engine execution time ($14, unix ns)
+// so the tape time matches the live WS event; 0 falls back to now().
+const insertTradeSQL = `INSERT INTO trades
+	 (trade_id, market_id, maker_order_id, taker_order_id, maker_user_id, taker_user_id,
+	  maker_side, price, qty, maker_fee, taker_fee, fee_currency, seq_num, created_at)
+	 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+	         COALESCE(to_timestamp(NULLIF($14::bigint, 0)::double precision / 1e9), now()))
+	 ON CONFLICT (trade_id, market_id) DO NOTHING`
 
 // ListTradesByMarket returns the most recent trades for a market (newest first).
 func ListTradesByMarket(ctx context.Context, pool *pgxpool.Pool, marketID string, limit int) ([]TradeRow, error) {

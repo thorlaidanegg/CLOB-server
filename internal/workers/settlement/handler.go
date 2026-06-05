@@ -80,6 +80,7 @@ func (h *Handler) handleTradeExecuted(ctx context.Context, tx pgx.Tx, ev *events
 		TakerFee:     ev.TakerFee.Value(),
 		FeeCurrency:  ev.FeeCurrency,
 		SeqNum:       int64(ev.SeqNum()),
+		ExecutedAtNs: ev.Timestamp(),
 	})
 }
 
@@ -179,10 +180,28 @@ func (h *Handler) settleSeller(ctx context.Context, tx pgx.Tx, fill *events.Trad
 // closeOrder releases an open order's outstanding reservation and marks it with
 // the terminal status. Shared by cancel and expiry — both free the remaining
 // reserved credits (buys only; sells reserved nothing) and close the order.
+//
+// The release is idempotent: it only fires when the order actually transitions
+// from an open state to terminal. A second terminal event for the same order
+// (e.g. repeated cancels producing "order not found" rejects) is a no-op, so the
+// reservation is never released twice (which would drive reserved negative and
+// trip the reserved_non_negative constraint).
 func (h *Handler) closeOrder(ctx context.Context, tx pgx.Tx, orderID, marketID, status string) error {
 	order, err := h.orderStore.GetOrder(ctx, orderID)
 	if err != nil {
 		return fmt.Errorf("settlement: get %s order: %w", status, err)
+	}
+
+	tag, err := tx.Exec(ctx,
+		`UPDATE orders SET status=$2, updated_at=now()
+		 WHERE order_id=$1 AND status IN ('new','rested','partial')`,
+		order.OrderID, status,
+	)
+	if err != nil {
+		return fmt.Errorf("settlement: %s order status: %w", status, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil // already terminal — reservation already released
 	}
 
 	// Only buys reserved credits (reserved_per_unit > 0). Sells reserved nothing,
@@ -208,27 +227,27 @@ func (h *Handler) closeOrder(ctx context.Context, tx pgx.Tx, orderID, marketID, 
 			return fmt.Errorf("settlement: %s wallet release: %w", status, err)
 		}
 	}
-
-	if _, err := tx.Exec(ctx,
-		`UPDATE orders SET status=$2, updated_at=now() WHERE order_id=$1`,
-		order.OrderID, status,
-	); err != nil {
-		return fmt.Errorf("settlement: %s order status: %w", status, err)
-	}
 	return nil
 }
 
 func (h *Handler) handleOrderRejected(ctx context.Context, tx pgx.Tx, ev *events.OrderRejected) error {
-	if _, err := tx.Exec(ctx,
-		`UPDATE orders SET status='rejected', updated_at=now() WHERE order_id=$1`,
-		string(ev.OrderID),
-	); err != nil {
-		return fmt.Errorf("settlement: reject order status: %w", err)
-	}
-
 	order, err := h.orderStore.GetOrder(ctx, string(ev.OrderID))
 	if err != nil {
 		// Order might not exist (e.g., engine reject before gateway insert) — non-fatal.
+		return nil
+	}
+
+	// Idempotent (see closeOrder): only release if this actually closes an open
+	// order. A reject that follows a cancel ("order not found") is a no-op.
+	tag, err := tx.Exec(ctx,
+		`UPDATE orders SET status='rejected', updated_at=now()
+		 WHERE order_id=$1 AND status IN ('new','rested','partial')`,
+		string(ev.OrderID),
+	)
+	if err != nil {
+		return fmt.Errorf("settlement: reject order status: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
 		return nil
 	}
 

@@ -11,7 +11,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/rs/zerolog v1.33.0
-	github.com/thorlaidanegg/clob v0.9.0
+	github.com/thorlaidanegg/clob v1.0.0
 	github.com/twmb/franz-go v1.21.2
 	golang.org/x/crypto v0.51.0
 	google.golang.org/grpc v1.65.0
