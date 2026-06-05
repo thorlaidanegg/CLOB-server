@@ -2,6 +2,9 @@
 package metrics
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"time"
@@ -74,6 +77,18 @@ type statusRecorder struct {
 func (r *statusRecorder) WriteHeader(code int) {
 	r.status = code
 	r.ResponseWriter.WriteHeader(code)
+}
+
+// Hijack forwards to the underlying ResponseWriter so WebSocket upgrades
+// (e.g. /v1/stream) still work behind this middleware. Without it, the embedded
+// http.ResponseWriter interface hides Hijack and coder/websocket's Accept fails
+// with 501 Not Implemented.
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("metrics: underlying ResponseWriter is not an http.Hijacker")
+	}
+	return h.Hijack()
 }
 
 // Middleware records request count and latency for every HTTP request.
