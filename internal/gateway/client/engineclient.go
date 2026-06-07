@@ -223,6 +223,25 @@ func (c *EngineClient) GetBBO(ctx context.Context, marketID string) (bid, ask st
 	return resp.Bid, resp.Ask, nil
 }
 
+func (c *EngineClient) CreateMarket(ctx context.Context, req CreateMarketRequest) (CreateMarketResponse, error) {
+	if !c.breaker.allow() {
+		return CreateMarketResponse{}, apierrors.ErrEngineUnavailable
+	}
+	ctx, cancel := context.WithTimeout(ctx, engineCallTimeout)
+	defer cancel()
+	resp, err := c.client.CreateMarket(ctx, &enginev1.CreateMarketRequest{
+		MarketId:         req.MarketID,
+		Auction:          req.Auction,
+		AuctionPreopenMs: req.AuctionPreOpenMs,
+		ReferencePrice:   req.ReferencePrice,
+	})
+	c.breaker.record(err)
+	if err != nil {
+		return CreateMarketResponse{}, err
+	}
+	return CreateMarketResponse{Created: resp.Created, State: resp.State}, nil
+}
+
 func (c *EngineClient) GetStats(ctx context.Context, marketID string) (MarketStats, error) {
 	if !c.breaker.allow() {
 		return MarketStats{}, apierrors.ErrEngineUnavailable

@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v5.27.2
-// source: engine.proto
+// source: proto/engine/engine.proto
 
 package v1
 
@@ -20,6 +20,126 @@ const (
 	// Verify that runtime/protoimpl is sufficiently up-to-date.
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
+
+type CreateMarketRequest struct {
+	state            protoimpl.MessageState `protogen:"open.v1"`
+	MarketId         string                 `protobuf:"bytes,1,opt,name=market_id,json=marketId,proto3" json:"market_id,omitempty"`
+	Auction          bool                   `protobuf:"varint,2,opt,name=auction,proto3" json:"auction,omitempty"`                                             // run an opening call-auction before continuous trading
+	AuctionPreopenMs int64                  `protobuf:"varint,3,opt,name=auction_preopen_ms,json=auctionPreopenMs,proto3" json:"auction_preopen_ms,omitempty"` // pre-open accumulation window before the auction clears
+	ReferencePrice   string                 `protobuf:"bytes,4,opt,name=reference_price,json=referencePrice,proto3" json:"reference_price,omitempty"`          // auction clearing-price tiebreaker (decimal string)
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *CreateMarketRequest) Reset() {
+	*x = CreateMarketRequest{}
+	mi := &file_proto_engine_engine_proto_msgTypes[0]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateMarketRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateMarketRequest) ProtoMessage() {}
+
+func (x *CreateMarketRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_engine_engine_proto_msgTypes[0]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateMarketRequest.ProtoReflect.Descriptor instead.
+func (*CreateMarketRequest) Descriptor() ([]byte, []int) {
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CreateMarketRequest) GetMarketId() string {
+	if x != nil {
+		return x.MarketId
+	}
+	return ""
+}
+
+func (x *CreateMarketRequest) GetAuction() bool {
+	if x != nil {
+		return x.Auction
+	}
+	return false
+}
+
+func (x *CreateMarketRequest) GetAuctionPreopenMs() int64 {
+	if x != nil {
+		return x.AuctionPreopenMs
+	}
+	return 0
+}
+
+func (x *CreateMarketRequest) GetReferencePrice() string {
+	if x != nil {
+		return x.ReferencePrice
+	}
+	return ""
+}
+
+type CreateMarketResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Created       bool                   `protobuf:"varint,1,opt,name=created,proto3" json:"created,omitempty"`
+	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"` // the market's engine state after creation
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CreateMarketResponse) Reset() {
+	*x = CreateMarketResponse{}
+	mi := &file_proto_engine_engine_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CreateMarketResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CreateMarketResponse) ProtoMessage() {}
+
+func (x *CreateMarketResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_engine_engine_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CreateMarketResponse.ProtoReflect.Descriptor instead.
+func (*CreateMarketResponse) Descriptor() ([]byte, []int) {
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CreateMarketResponse) GetCreated() bool {
+	if x != nil {
+		return x.Created
+	}
+	return false
+}
+
+func (x *CreateMarketResponse) GetState() string {
+	if x != nil {
+		return x.State
+	}
+	return ""
+}
 
 type PlaceOrderRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -42,7 +162,7 @@ type PlaceOrderRequest struct {
 
 func (x *PlaceOrderRequest) Reset() {
 	*x = PlaceOrderRequest{}
-	mi := &file_engine_proto_msgTypes[0]
+	mi := &file_proto_engine_engine_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -54,7 +174,7 @@ func (x *PlaceOrderRequest) String() string {
 func (*PlaceOrderRequest) ProtoMessage() {}
 
 func (x *PlaceOrderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[0]
+	mi := &file_proto_engine_engine_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67,7 +187,7 @@ func (x *PlaceOrderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaceOrderRequest.ProtoReflect.Descriptor instead.
 func (*PlaceOrderRequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{0}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *PlaceOrderRequest) GetMarketId() string {
@@ -173,7 +293,7 @@ type PlaceOrderResponse struct {
 
 func (x *PlaceOrderResponse) Reset() {
 	*x = PlaceOrderResponse{}
-	mi := &file_engine_proto_msgTypes[1]
+	mi := &file_proto_engine_engine_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -185,7 +305,7 @@ func (x *PlaceOrderResponse) String() string {
 func (*PlaceOrderResponse) ProtoMessage() {}
 
 func (x *PlaceOrderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[1]
+	mi := &file_proto_engine_engine_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -198,7 +318,7 @@ func (x *PlaceOrderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PlaceOrderResponse.ProtoReflect.Descriptor instead.
 func (*PlaceOrderResponse) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{1}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *PlaceOrderResponse) GetOrderId() string {
@@ -240,7 +360,7 @@ type CancelOrderRequest struct {
 
 func (x *CancelOrderRequest) Reset() {
 	*x = CancelOrderRequest{}
-	mi := &file_engine_proto_msgTypes[2]
+	mi := &file_proto_engine_engine_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -252,7 +372,7 @@ func (x *CancelOrderRequest) String() string {
 func (*CancelOrderRequest) ProtoMessage() {}
 
 func (x *CancelOrderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[2]
+	mi := &file_proto_engine_engine_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -265,7 +385,7 @@ func (x *CancelOrderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelOrderRequest.ProtoReflect.Descriptor instead.
 func (*CancelOrderRequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{2}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *CancelOrderRequest) GetMarketId() string {
@@ -300,7 +420,7 @@ type CancelOrderResponse struct {
 
 func (x *CancelOrderResponse) Reset() {
 	*x = CancelOrderResponse{}
-	mi := &file_engine_proto_msgTypes[3]
+	mi := &file_proto_engine_engine_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -312,7 +432,7 @@ func (x *CancelOrderResponse) String() string {
 func (*CancelOrderResponse) ProtoMessage() {}
 
 func (x *CancelOrderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[3]
+	mi := &file_proto_engine_engine_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -325,7 +445,7 @@ func (x *CancelOrderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelOrderResponse.ProtoReflect.Descriptor instead.
 func (*CancelOrderResponse) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{3}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CancelOrderResponse) GetOrderId() string {
@@ -359,7 +479,7 @@ type GetDepthRequest struct {
 
 func (x *GetDepthRequest) Reset() {
 	*x = GetDepthRequest{}
-	mi := &file_engine_proto_msgTypes[4]
+	mi := &file_proto_engine_engine_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -371,7 +491,7 @@ func (x *GetDepthRequest) String() string {
 func (*GetDepthRequest) ProtoMessage() {}
 
 func (x *GetDepthRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[4]
+	mi := &file_proto_engine_engine_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -384,7 +504,7 @@ func (x *GetDepthRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDepthRequest.ProtoReflect.Descriptor instead.
 func (*GetDepthRequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{4}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *GetDepthRequest) GetMarketId() string {
@@ -411,7 +531,7 @@ type GetDepthResponse struct {
 
 func (x *GetDepthResponse) Reset() {
 	*x = GetDepthResponse{}
-	mi := &file_engine_proto_msgTypes[5]
+	mi := &file_proto_engine_engine_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -423,7 +543,7 @@ func (x *GetDepthResponse) String() string {
 func (*GetDepthResponse) ProtoMessage() {}
 
 func (x *GetDepthResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[5]
+	mi := &file_proto_engine_engine_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -436,7 +556,7 @@ func (x *GetDepthResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetDepthResponse.ProtoReflect.Descriptor instead.
 func (*GetDepthResponse) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{5}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *GetDepthResponse) GetBids() []*DepthLevel {
@@ -465,7 +585,7 @@ type DepthLevel struct {
 
 func (x *DepthLevel) Reset() {
 	*x = DepthLevel{}
-	mi := &file_engine_proto_msgTypes[6]
+	mi := &file_proto_engine_engine_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -477,7 +597,7 @@ func (x *DepthLevel) String() string {
 func (*DepthLevel) ProtoMessage() {}
 
 func (x *DepthLevel) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[6]
+	mi := &file_proto_engine_engine_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -490,7 +610,7 @@ func (x *DepthLevel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DepthLevel.ProtoReflect.Descriptor instead.
 func (*DepthLevel) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{6}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *DepthLevel) GetPrice() string {
@@ -530,7 +650,7 @@ type GetBBORequest struct {
 
 func (x *GetBBORequest) Reset() {
 	*x = GetBBORequest{}
-	mi := &file_engine_proto_msgTypes[7]
+	mi := &file_proto_engine_engine_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -542,7 +662,7 @@ func (x *GetBBORequest) String() string {
 func (*GetBBORequest) ProtoMessage() {}
 
 func (x *GetBBORequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[7]
+	mi := &file_proto_engine_engine_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -555,7 +675,7 @@ func (x *GetBBORequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBBORequest.ProtoReflect.Descriptor instead.
 func (*GetBBORequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{7}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetBBORequest) GetMarketId() string {
@@ -575,7 +695,7 @@ type GetBBOResponse struct {
 
 func (x *GetBBOResponse) Reset() {
 	*x = GetBBOResponse{}
-	mi := &file_engine_proto_msgTypes[8]
+	mi := &file_proto_engine_engine_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -587,7 +707,7 @@ func (x *GetBBOResponse) String() string {
 func (*GetBBOResponse) ProtoMessage() {}
 
 func (x *GetBBOResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[8]
+	mi := &file_proto_engine_engine_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -600,7 +720,7 @@ func (x *GetBBOResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetBBOResponse.ProtoReflect.Descriptor instead.
 func (*GetBBOResponse) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{8}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *GetBBOResponse) GetBid() string {
@@ -626,7 +746,7 @@ type GetStatsRequest struct {
 
 func (x *GetStatsRequest) Reset() {
 	*x = GetStatsRequest{}
-	mi := &file_engine_proto_msgTypes[9]
+	mi := &file_proto_engine_engine_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -638,7 +758,7 @@ func (x *GetStatsRequest) String() string {
 func (*GetStatsRequest) ProtoMessage() {}
 
 func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[9]
+	mi := &file_proto_engine_engine_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -651,7 +771,7 @@ func (x *GetStatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsRequest.ProtoReflect.Descriptor instead.
 func (*GetStatsRequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{9}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *GetStatsRequest) GetMarketId() string {
@@ -681,7 +801,7 @@ type GetStatsResponse struct {
 
 func (x *GetStatsResponse) Reset() {
 	*x = GetStatsResponse{}
-	mi := &file_engine_proto_msgTypes[10]
+	mi := &file_proto_engine_engine_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -693,7 +813,7 @@ func (x *GetStatsResponse) String() string {
 func (*GetStatsResponse) ProtoMessage() {}
 
 func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[10]
+	mi := &file_proto_engine_engine_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -706,7 +826,7 @@ func (x *GetStatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetStatsResponse.ProtoReflect.Descriptor instead.
 func (*GetStatsResponse) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{10}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *GetStatsResponse) GetMarketId() string {
@@ -802,7 +922,7 @@ type StreamEventsRequest struct {
 
 func (x *StreamEventsRequest) Reset() {
 	*x = StreamEventsRequest{}
-	mi := &file_engine_proto_msgTypes[11]
+	mi := &file_proto_engine_engine_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -814,7 +934,7 @@ func (x *StreamEventsRequest) String() string {
 func (*StreamEventsRequest) ProtoMessage() {}
 
 func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[11]
+	mi := &file_proto_engine_engine_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -827,7 +947,7 @@ func (x *StreamEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamEventsRequest.ProtoReflect.Descriptor instead.
 func (*StreamEventsRequest) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{11}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *StreamEventsRequest) GetMarketId() string {
@@ -848,7 +968,7 @@ type EngineEvent struct {
 
 func (x *EngineEvent) Reset() {
 	*x = EngineEvent{}
-	mi := &file_engine_proto_msgTypes[12]
+	mi := &file_proto_engine_engine_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -860,7 +980,7 @@ func (x *EngineEvent) String() string {
 func (*EngineEvent) ProtoMessage() {}
 
 func (x *EngineEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_engine_proto_msgTypes[12]
+	mi := &file_proto_engine_engine_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -873,7 +993,7 @@ func (x *EngineEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EngineEvent.ProtoReflect.Descriptor instead.
 func (*EngineEvent) Descriptor() ([]byte, []int) {
-	return file_engine_proto_rawDescGZIP(), []int{12}
+	return file_proto_engine_engine_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *EngineEvent) GetEventType() string {
@@ -897,11 +1017,19 @@ func (x *EngineEvent) GetSeqNum() uint64 {
 	return 0
 }
 
-var File_engine_proto protoreflect.FileDescriptor
+var File_proto_engine_engine_proto protoreflect.FileDescriptor
 
-const file_engine_proto_rawDesc = "" +
+const file_proto_engine_engine_proto_rawDesc = "" +
 	"\n" +
-	"\fengine.proto\x12\tengine.v1\"\xdf\x02\n" +
+	"\x19proto/engine/engine.proto\x12\tengine.v1\"\xa3\x01\n" +
+	"\x13CreateMarketRequest\x12\x1b\n" +
+	"\tmarket_id\x18\x01 \x01(\tR\bmarketId\x12\x18\n" +
+	"\aauction\x18\x02 \x01(\bR\aauction\x12,\n" +
+	"\x12auction_preopen_ms\x18\x03 \x01(\x03R\x10auctionPreopenMs\x12'\n" +
+	"\x0freference_price\x18\x04 \x01(\tR\x0ereferencePrice\"F\n" +
+	"\x14CreateMarketResponse\x12\x18\n" +
+	"\acreated\x18\x01 \x01(\bR\acreated\x12\x14\n" +
+	"\x05state\x18\x02 \x01(\tR\x05state\"\xdf\x02\n" +
 	"\x11PlaceOrderRequest\x12\x1b\n" +
 	"\tmarket_id\x18\x01 \x01(\tR\bmarketId\x12\x19\n" +
 	"\border_id\x18\x02 \x01(\tR\aorderId\x12\x17\n" +
@@ -978,7 +1106,7 @@ const file_engine_proto_rawDesc = "" +
 	"\n" +
 	"event_type\x18\x01 \x01(\tR\teventType\x12\x18\n" +
 	"\apayload\x18\x02 \x01(\fR\apayload\x12\x17\n" +
-	"\aseq_num\x18\x03 \x01(\x04R\x06seqNum2\xbb\x03\n" +
+	"\aseq_num\x18\x03 \x01(\x04R\x06seqNum2\x8c\x04\n" +
 	"\rEngineService\x12I\n" +
 	"\n" +
 	"PlaceOrder\x12\x1c.engine.v1.PlaceOrderRequest\x1a\x1d.engine.v1.PlaceOrderResponse\x12L\n" +
@@ -986,78 +1114,83 @@ const file_engine_proto_rawDesc = "" +
 	"\bGetDepth\x12\x1a.engine.v1.GetDepthRequest\x1a\x1b.engine.v1.GetDepthResponse\x12=\n" +
 	"\x06GetBBO\x12\x18.engine.v1.GetBBORequest\x1a\x19.engine.v1.GetBBOResponse\x12C\n" +
 	"\bGetStats\x12\x1a.engine.v1.GetStatsRequest\x1a\x1b.engine.v1.GetStatsResponse\x12H\n" +
-	"\fStreamEvents\x12\x1e.engine.v1.StreamEventsRequest\x1a\x16.engine.v1.EngineEvent0\x01B6Z4github.com/thorlaidanegg/clob-server/proto/engine/v1b\x06proto3"
+	"\fStreamEvents\x12\x1e.engine.v1.StreamEventsRequest\x1a\x16.engine.v1.EngineEvent0\x01\x12O\n" +
+	"\fCreateMarket\x12\x1e.engine.v1.CreateMarketRequest\x1a\x1f.engine.v1.CreateMarketResponseB6Z4github.com/thorlaidanegg/clob-server/proto/engine/v1b\x06proto3"
 
 var (
-	file_engine_proto_rawDescOnce sync.Once
-	file_engine_proto_rawDescData []byte
+	file_proto_engine_engine_proto_rawDescOnce sync.Once
+	file_proto_engine_engine_proto_rawDescData []byte
 )
 
-func file_engine_proto_rawDescGZIP() []byte {
-	file_engine_proto_rawDescOnce.Do(func() {
-		file_engine_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_engine_proto_rawDesc), len(file_engine_proto_rawDesc)))
+func file_proto_engine_engine_proto_rawDescGZIP() []byte {
+	file_proto_engine_engine_proto_rawDescOnce.Do(func() {
+		file_proto_engine_engine_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_engine_engine_proto_rawDesc), len(file_proto_engine_engine_proto_rawDesc)))
 	})
-	return file_engine_proto_rawDescData
+	return file_proto_engine_engine_proto_rawDescData
 }
 
-var file_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
-var file_engine_proto_goTypes = []any{
-	(*PlaceOrderRequest)(nil),   // 0: engine.v1.PlaceOrderRequest
-	(*PlaceOrderResponse)(nil),  // 1: engine.v1.PlaceOrderResponse
-	(*CancelOrderRequest)(nil),  // 2: engine.v1.CancelOrderRequest
-	(*CancelOrderResponse)(nil), // 3: engine.v1.CancelOrderResponse
-	(*GetDepthRequest)(nil),     // 4: engine.v1.GetDepthRequest
-	(*GetDepthResponse)(nil),    // 5: engine.v1.GetDepthResponse
-	(*DepthLevel)(nil),          // 6: engine.v1.DepthLevel
-	(*GetBBORequest)(nil),       // 7: engine.v1.GetBBORequest
-	(*GetBBOResponse)(nil),      // 8: engine.v1.GetBBOResponse
-	(*GetStatsRequest)(nil),     // 9: engine.v1.GetStatsRequest
-	(*GetStatsResponse)(nil),    // 10: engine.v1.GetStatsResponse
-	(*StreamEventsRequest)(nil), // 11: engine.v1.StreamEventsRequest
-	(*EngineEvent)(nil),         // 12: engine.v1.EngineEvent
+var file_proto_engine_engine_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_proto_engine_engine_proto_goTypes = []any{
+	(*CreateMarketRequest)(nil),  // 0: engine.v1.CreateMarketRequest
+	(*CreateMarketResponse)(nil), // 1: engine.v1.CreateMarketResponse
+	(*PlaceOrderRequest)(nil),    // 2: engine.v1.PlaceOrderRequest
+	(*PlaceOrderResponse)(nil),   // 3: engine.v1.PlaceOrderResponse
+	(*CancelOrderRequest)(nil),   // 4: engine.v1.CancelOrderRequest
+	(*CancelOrderResponse)(nil),  // 5: engine.v1.CancelOrderResponse
+	(*GetDepthRequest)(nil),      // 6: engine.v1.GetDepthRequest
+	(*GetDepthResponse)(nil),     // 7: engine.v1.GetDepthResponse
+	(*DepthLevel)(nil),           // 8: engine.v1.DepthLevel
+	(*GetBBORequest)(nil),        // 9: engine.v1.GetBBORequest
+	(*GetBBOResponse)(nil),       // 10: engine.v1.GetBBOResponse
+	(*GetStatsRequest)(nil),      // 11: engine.v1.GetStatsRequest
+	(*GetStatsResponse)(nil),     // 12: engine.v1.GetStatsResponse
+	(*StreamEventsRequest)(nil),  // 13: engine.v1.StreamEventsRequest
+	(*EngineEvent)(nil),          // 14: engine.v1.EngineEvent
 }
-var file_engine_proto_depIdxs = []int32{
-	6,  // 0: engine.v1.GetDepthResponse.bids:type_name -> engine.v1.DepthLevel
-	6,  // 1: engine.v1.GetDepthResponse.asks:type_name -> engine.v1.DepthLevel
-	0,  // 2: engine.v1.EngineService.PlaceOrder:input_type -> engine.v1.PlaceOrderRequest
-	2,  // 3: engine.v1.EngineService.CancelOrder:input_type -> engine.v1.CancelOrderRequest
-	4,  // 4: engine.v1.EngineService.GetDepth:input_type -> engine.v1.GetDepthRequest
-	7,  // 5: engine.v1.EngineService.GetBBO:input_type -> engine.v1.GetBBORequest
-	9,  // 6: engine.v1.EngineService.GetStats:input_type -> engine.v1.GetStatsRequest
-	11, // 7: engine.v1.EngineService.StreamEvents:input_type -> engine.v1.StreamEventsRequest
-	1,  // 8: engine.v1.EngineService.PlaceOrder:output_type -> engine.v1.PlaceOrderResponse
-	3,  // 9: engine.v1.EngineService.CancelOrder:output_type -> engine.v1.CancelOrderResponse
-	5,  // 10: engine.v1.EngineService.GetDepth:output_type -> engine.v1.GetDepthResponse
-	8,  // 11: engine.v1.EngineService.GetBBO:output_type -> engine.v1.GetBBOResponse
-	10, // 12: engine.v1.EngineService.GetStats:output_type -> engine.v1.GetStatsResponse
-	12, // 13: engine.v1.EngineService.StreamEvents:output_type -> engine.v1.EngineEvent
-	8,  // [8:14] is the sub-list for method output_type
-	2,  // [2:8] is the sub-list for method input_type
+var file_proto_engine_engine_proto_depIdxs = []int32{
+	8,  // 0: engine.v1.GetDepthResponse.bids:type_name -> engine.v1.DepthLevel
+	8,  // 1: engine.v1.GetDepthResponse.asks:type_name -> engine.v1.DepthLevel
+	2,  // 2: engine.v1.EngineService.PlaceOrder:input_type -> engine.v1.PlaceOrderRequest
+	4,  // 3: engine.v1.EngineService.CancelOrder:input_type -> engine.v1.CancelOrderRequest
+	6,  // 4: engine.v1.EngineService.GetDepth:input_type -> engine.v1.GetDepthRequest
+	9,  // 5: engine.v1.EngineService.GetBBO:input_type -> engine.v1.GetBBORequest
+	11, // 6: engine.v1.EngineService.GetStats:input_type -> engine.v1.GetStatsRequest
+	13, // 7: engine.v1.EngineService.StreamEvents:input_type -> engine.v1.StreamEventsRequest
+	0,  // 8: engine.v1.EngineService.CreateMarket:input_type -> engine.v1.CreateMarketRequest
+	3,  // 9: engine.v1.EngineService.PlaceOrder:output_type -> engine.v1.PlaceOrderResponse
+	5,  // 10: engine.v1.EngineService.CancelOrder:output_type -> engine.v1.CancelOrderResponse
+	7,  // 11: engine.v1.EngineService.GetDepth:output_type -> engine.v1.GetDepthResponse
+	10, // 12: engine.v1.EngineService.GetBBO:output_type -> engine.v1.GetBBOResponse
+	12, // 13: engine.v1.EngineService.GetStats:output_type -> engine.v1.GetStatsResponse
+	14, // 14: engine.v1.EngineService.StreamEvents:output_type -> engine.v1.EngineEvent
+	1,  // 15: engine.v1.EngineService.CreateMarket:output_type -> engine.v1.CreateMarketResponse
+	9,  // [9:16] is the sub-list for method output_type
+	2,  // [2:9] is the sub-list for method input_type
 	2,  // [2:2] is the sub-list for extension type_name
 	2,  // [2:2] is the sub-list for extension extendee
 	0,  // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_engine_proto_init() }
-func file_engine_proto_init() {
-	if File_engine_proto != nil {
+func init() { file_proto_engine_engine_proto_init() }
+func file_proto_engine_engine_proto_init() {
+	if File_proto_engine_engine_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_engine_proto_rawDesc), len(file_engine_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_engine_engine_proto_rawDesc), len(file_proto_engine_engine_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   13,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
-		GoTypes:           file_engine_proto_goTypes,
-		DependencyIndexes: file_engine_proto_depIdxs,
-		MessageInfos:      file_engine_proto_msgTypes,
+		GoTypes:           file_proto_engine_engine_proto_goTypes,
+		DependencyIndexes: file_proto_engine_engine_proto_depIdxs,
+		MessageInfos:      file_proto_engine_engine_proto_msgTypes,
 	}.Build()
-	File_engine_proto = out.File
-	file_engine_proto_goTypes = nil
-	file_engine_proto_depIdxs = nil
+	File_proto_engine_engine_proto = out.File
+	file_proto_engine_engine_proto_goTypes = nil
+	file_proto_engine_engine_proto_depIdxs = nil
 }

@@ -1,0 +1,105 @@
+# ── Cheapest single-VM deployment ────────────────────────────────────────────
+# The whole platform on one small box: the backend runs as ONE process
+# (ROLE=all → engine + gateway + settlement/portfolio/leaderboard workers + the
+# WS broadcaster, using an in-memory bus, so NO Kafka is needed), behind Caddy
+# which serves the SPA and proxies the API on a single domain with auto-HTTPS.
+#
+# Needs only: Postgres + Redis + the app + Caddy. Comfortable on a 2 vCPU / 2-4 GB
+# VM (Hetzner CX22 ~€4/mo, or the Oracle Cloud Always-Free ARM box).
+#
+#   cp .env.example .env   # set SITE_ADDRESS, JWT_SECRET, ADMIN_BOOTSTRAP_KEY…
+#   docker compose up -d --build
+#   # optional, for continuous bot flow once you've minted two API keys:
+#   docker compose --profile bots up -d --build
+#
+# Trade-off vs docker-compose.prod.yml (the distributed, Kafka-backed stack):
+# ROLE=all is single-process and the event bus is in-memory, so events are not
+# durable across a restart (recovery rebuilds the book from the Postgres
+# checkpoint and otherwise cancels open orders). Perfect for a demo; use the prod
+# compose when you want the horizontally-scalable, durable deployment.
+name: clob
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clob
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clob}
+      POSTGRES_DB: clob
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clob"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  app:
+    build:
+      context: ..
+    environment:
+      ROLE: all
+      POSTGRES_DSN: postgres://clob:${POSTGRES_PASSWORD:-clob}@postgres:5432/clob?sslmode=disable
+      REDIS_ADDR: redis:6379
+      HTTP_PORT: "8080"
+      MARKETS: ${MARKETS:-BTC-USD,ETH-USD,SOL-USD}
+      ADMIN_BOOTSTRAP_KEY: ${ADMIN_BOOTSTRAP_KEY:?set a strong admin key in .env}
+      JWT_SECRET: ${JWT_SECRET:?set a long random secret in .env}
+      SIGNUP_CREDITS: ${SIGNUP_CREDITS:-100000.00}
+      LOG_LEVEL: info
+      ENVIRONMENT: production
+      # KAFKA_BROKERS intentionally unset → in-memory bus (single process).
+    depends_on:
+      postgres: {condition: service_healthy}
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../../clob-frontend
+    environment:
+      # A bare domain (e.g. clob.example.com) enables automatic HTTPS. Use ":80"
+      # to serve plain HTTP (e.g. when testing against an IP without a domain).
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+      APP_UPSTREAM: app:8080
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    restart: unless-stopped
+
+  # ── Optional: keep markets visibly alive with continuous bot flow ────────────
+  # Mint two trader API keys in the UI (Developer page), put them in .env, then:
+  #   docker compose --profile bots up -d --build
+  marketmaker:
+    build:
+      context: ../../clob-bot
+    command: ["marketmaker", "-market", "${BOT_MARKET:-BTC-USD}", "-size", "0.01", "-levels", "3"]
+    environment:
+      CLOB_BASE_URL: http://app:8080
+      CLOB_API_KEY: ${MAKER_KEY:-}
+    depends_on: [app]
+    profiles: ["bots"]
+    restart: unless-stopped
+
+  taker:
+    build:
+      context: ../../clob-bot
+    command: ["taker", "-market", "${BOT_MARKET:-BTC-USD}", "-size", "0.01"]
+    environment:
+      CLOB_BASE_URL: http://app:8080
+      CLOB_API_KEY: ${TAKER_KEY:-}
+    depends_on: [app]
+    profiles: ["bots"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

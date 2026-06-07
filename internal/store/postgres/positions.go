@@ -18,6 +18,21 @@ type PositionRow struct {
 	LastEventSeq   int64
 }
 
+// GrantPosition upserts a position's quantity and average entry price. Operational
+// tool (admin) for seeding base inventory on a market — the only way to bootstrap
+// the sell side on a fresh long-only market. Quantity/avgEntryPrice are raw
+// integers at the market's qty/price precision.
+func GrantPosition(ctx context.Context, pool *pgxpool.Pool, userID, marketID string, quantity, avgEntryPrice int64) error {
+	_, err := pool.Exec(ctx,
+		`INSERT INTO positions (user_id, market_id, quantity, avg_entry_price, realised_pnl, last_event_seq)
+		 VALUES ($1, $2, $3, $4, 0, 0)
+		 ON CONFLICT (user_id, market_id)
+		 DO UPDATE SET quantity = EXCLUDED.quantity, avg_entry_price = EXCLUDED.avg_entry_price, updated_at = now()`,
+		userID, marketID, quantity, avgEntryPrice,
+	)
+	return err
+}
+
 // GetPosition fetches a single position. Returns a zero-value row (not an error) if not found.
 func GetPosition(ctx context.Context, pool *pgxpool.Pool, userID, marketID string) (PositionRow, error) {
 	var r PositionRow

@@ -71,6 +71,9 @@ func (b *Broadcaster) Run(ctx context.Context) {
 			}
 		case events.TypeMarketHalted, events.TypeMarketResumed:
 			emit("markets")
+		case events.TypeAuctionOpened, events.TypeAuctionCleared:
+			emit("status:" + marketID)
+			emit("markets")
 		}
 	}
 }

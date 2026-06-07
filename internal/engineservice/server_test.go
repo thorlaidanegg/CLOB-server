@@ -33,7 +33,7 @@ func startGRPC(t *testing.T) (enginev1.EngineServiceClient, *engine.MultiEngine)
 
 	lis := bufconn.Listen(1024 * 1024)
 	srv := grpc.NewServer()
-	enginev1.RegisterEngineServiceServer(srv, NewEngineServer(multi, []clobconfig.MarketConfig{cfg}, zerolog.Nop()))
+	enginev1.RegisterEngineServiceServer(srv, NewEngineServer(multi, []clobconfig.MarketConfig{cfg}, nil, zerolog.Nop()))
 	go srv.Serve(lis)
 	t.Cleanup(srv.Stop)
 

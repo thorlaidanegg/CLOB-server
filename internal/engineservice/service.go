@@ -105,6 +105,10 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	publisher := NewEventPublisher(producer, log)
 	go publisher.Run(ctx, multi.AllEvents())
 
+	// Lets markets be created at runtime (POST /v1/markets) and registered with
+	// the live engine without a restart.
+	creator := NewMarketCreator(ctx, multi, pool, hook, volumeCache, publisher, log)
+
 	// Markets are created in PreOpen; open the ones marked open in the DB so
 	// orders actually match (otherwise they only rest).
 	ResumeOpenMarkets(ctx, multi, pool, log)
@@ -127,7 +131,7 @@ func Run(ctx context.Context, cfg *srvconfig.Config, log zerolog.Logger) {
 	}
 
 	grpcSrv := grpc.NewServer(grpcOpts...)
-	enginev1.RegisterEngineServiceServer(grpcSrv, NewEngineServer(multi, marketCfgs, log))
+	enginev1.RegisterEngineServiceServer(grpcSrv, NewEngineServer(multi, marketCfgs, creator, log))
 	log.Info().Int("port", cfg.EngineGRPCPort).Msg("engine: gRPC server starting")
 
 	go func() {

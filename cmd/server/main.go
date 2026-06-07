@@ -121,7 +121,9 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 
 	// InMemBus: engine → all workers without Kafka.
 	inMemBus := bus.NewInMemBus()
-	go engineservice.NewEventPublisher(inMemBus, log).Run(ctx, multi.AllEvents())
+	publisher := engineservice.NewEventPublisher(inMemBus, log)
+	go publisher.Run(ctx, multi.AllEvents())
+	marketCreator := engineservice.NewMarketCreator(ctx, multi, pool, hook, volumeCache, publisher, log)
 
 	// Open markets flagged open in the DB (engine creates them in PreOpen).
 	engineservice.ResumeOpenMarkets(ctx, multi, pool, log)
@@ -156,7 +158,16 @@ func runAll(ctx context.Context, cfg *srvconfig.Config) {
 	}
 	go workers.NewWorkerRunner("booksnapshot", "market-events", pool, inMemBus.NewConsumer(), bsHandler, log).Run(ctx)
 
-	engineAdapter := gatewayclient.NewDirectAdapter(multi, marketCfgs, orderStore)
+	createMarket := func(_ context.Context, req gatewayclient.CreateMarketRequest) (clobconfig.MarketConfig, gatewayclient.CreateMarketResponse, error) {
+		cfg, state, err := marketCreator.Create(engineservice.CreateParams{
+			MarketID:       req.MarketID,
+			Auction:        req.Auction,
+			PreOpen:        time.Duration(req.AuctionPreOpenMs) * time.Millisecond,
+			ReferencePrice: req.ReferencePrice,
+		})
+		return cfg, gatewayclient.CreateMarketResponse{Created: state != "exists", State: state}, err
+	}
+	engineAdapter := gatewayclient.NewDirectAdapter(multi, marketCfgs, orderStore, createMarket)
 	deps := &gateway.Deps{
 		PG:          pool,
 		Redis:       rdb,

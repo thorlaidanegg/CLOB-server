@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	clobconfig "github.com/thorlaidanegg/clob/config"
 	"github.com/thorlaidanegg/clob/engine"
@@ -11,25 +12,55 @@ import (
 	ordersstore "github.com/thorlaidanegg/clob-server/internal/store/postgres/orders"
 )
 
+// MarketCreatorFunc registers a (already-persisted) market with the live in-process
+// engine and returns its config so the adapter can route orders to it. Wired by
+// ROLE=all; nil disables runtime market creation.
+type MarketCreatorFunc func(ctx context.Context, req CreateMarketRequest) (clobconfig.MarketConfig, CreateMarketResponse, error)
+
 // directAdapter implements EngineAdapter by calling MultiEngine directly (ROLE=all).
 type directAdapter struct {
-	multi       *engine.MultiEngine
-	marketCfgs  map[string]clobconfig.MarketConfig
-	orderStore  ordersstore.Store
+	multi      *engine.MultiEngine
+	orderStore ordersstore.Store
+	create     MarketCreatorFunc
+
+	mu         sync.RWMutex
+	marketCfgs map[string]clobconfig.MarketConfig // guarded by mu
 }
 
 // NewDirectAdapter creates an in-process adapter.
-// orderStore is used by CancelOrder to resolve marketID from orderID.
-func NewDirectAdapter(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig, orderStore ordersstore.Store) EngineAdapter {
+// orderStore is used by CancelOrder to resolve marketID from orderID. create may be
+// nil to disable runtime market creation.
+func NewDirectAdapter(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig, orderStore ordersstore.Store, create MarketCreatorFunc) EngineAdapter {
 	m := make(map[string]clobconfig.MarketConfig, len(cfgs))
 	for _, c := range cfgs {
 		m[string(c.MarketID)] = c
 	}
-	return &directAdapter{multi: multi, marketCfgs: m, orderStore: orderStore}
+	return &directAdapter{multi: multi, marketCfgs: m, orderStore: orderStore, create: create}
+}
+
+func (a *directAdapter) marketCfg(id string) (clobconfig.MarketConfig, bool) {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	mc, ok := a.marketCfgs[id]
+	return mc, ok
+}
+
+func (a *directAdapter) CreateMarket(ctx context.Context, req CreateMarketRequest) (CreateMarketResponse, error) {
+	if a.create == nil {
+		return CreateMarketResponse{}, fmt.Errorf("runtime market creation is not enabled")
+	}
+	cfg, resp, err := a.create(ctx, req)
+	if err != nil {
+		return CreateMarketResponse{}, err
+	}
+	a.mu.Lock()
+	a.marketCfgs[req.MarketID] = cfg
+	a.mu.Unlock()
+	return resp, nil
 }
 
 func (a *directAdapter) PlaceOrder(ctx context.Context, req PlaceOrderRequest) (PlaceOrderResponse, error) {
-	mc, ok := a.marketCfgs[req.MarketID]
+	mc, ok := a.marketCfg(req.MarketID)
 	if !ok {
 		return PlaceOrderResponse{}, fmt.Errorf("market not found: %s", req.MarketID)
 	}

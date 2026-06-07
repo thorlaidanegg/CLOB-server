@@ -88,10 +88,12 @@ func NewRouter(deps *Deps) http.Handler {
 			r.Delete("/orders/{id}", rest.CancelOrder(deps.PG, deps.OrderStore, deps.Engine))
 
 			r.Get("/markets", rest.GetMarkets(deps.PG))
+			r.Post("/markets", rest.CreateMarket(deps.PG, deps.OrderStore, deps.WalletStore, deps.Engine, deps.Log))
 			r.Get("/markets/{id}", rest.GetMarket(deps.PG))
 			r.Get("/markets/{id}/depth", rest.GetDepth(deps.Engine))
 			r.Get("/markets/{id}/trades", rest.GetTrades(deps.PG))
 
+			r.Get("/whoami", rest.WhoAmI())
 			r.Get("/portfolio", rest.GetPortfolio(deps.PG, deps.Redis))
 			r.Get("/leaderboard", rest.GetLeaderboard(deps.PG, deps.Redis))
 
@@ -107,6 +109,7 @@ func NewRouter(deps *Deps) http.Handler {
 				r.Get("/markets/{id}/stats", rest.GetMarketStats(deps.PG, deps.Engine))
 				r.Post("/users", admin.CreateUser(deps.PG))
 				r.Post("/users/{id}/credits", admin.CreditUser(deps.PG, deps.WalletStore))
+				r.Post("/users/{id}/positions", admin.GrantPosition(deps.PG))
 				r.Delete("/orders/{id}", admin.ForceCancelOrder(deps.OrderStore, deps.Engine, deps.Log))
 			})
 		})

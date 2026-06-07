@@ -33,6 +33,21 @@ type PlaceOrderResponse struct {
 	Reason  string `json:"reason,omitempty"`
 }
 
+// CreateMarketRequest asks the engine to register a (already-persisted) market
+// with the running MultiEngine, optionally running an opening call-auction.
+type CreateMarketRequest struct {
+	MarketID         string
+	Auction          bool
+	AuctionPreOpenMs int64
+	ReferencePrice   string // decimal string; auction tiebreaker
+}
+
+// CreateMarketResponse reports the engine state after creation.
+type CreateMarketResponse struct {
+	Created bool
+	State   string // "open" | "auction" | "exists"
+}
+
 // MarketStats holds engine resource utilization for a single market.
 type MarketStats struct {
 	MarketID          string
@@ -56,4 +71,5 @@ type EngineAdapter interface {
 	GetDepth(ctx context.Context, marketID string, levels int) (events.BookSnapshot, error)
 	GetBBO(ctx context.Context, marketID string) (bid, ask string, err error)
 	GetStats(ctx context.Context, marketID string) (MarketStats, error)
+	CreateMarket(ctx context.Context, req CreateMarketRequest) (CreateMarketResponse, error)
 }

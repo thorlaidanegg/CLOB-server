@@ -61,6 +61,10 @@ func (h *Handler) HandleEvent(ctx context.Context, _ pgx.Tx, env workers.EventEn
 
 	case events.TypeMarketHalted, events.TypeMarketResumed:
 		h.hub.Broadcast("markets", env.Raw)
+
+	case events.TypeAuctionOpened, events.TypeAuctionCleared:
+		h.hub.Broadcast("status:"+marketID, env.Raw)
+		h.hub.Broadcast("markets", env.Raw)
 	}
 
 	return nil

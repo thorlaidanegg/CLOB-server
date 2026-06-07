@@ -2,7 +2,7 @@
 // versions:
 // - protoc-gen-go-grpc v1.6.2
 // - protoc             v5.27.2
-// source: engine.proto
+// source: proto/engine/engine.proto
 
 package v1
 
@@ -25,6 +25,7 @@ const (
 	EngineService_GetBBO_FullMethodName       = "/engine.v1.EngineService/GetBBO"
 	EngineService_GetStats_FullMethodName     = "/engine.v1.EngineService/GetStats"
 	EngineService_StreamEvents_FullMethodName = "/engine.v1.EngineService/StreamEvents"
+	EngineService_CreateMarket_FullMethodName = "/engine.v1.EngineService/CreateMarket"
 )
 
 // EngineServiceClient is the client API for EngineService service.
@@ -37,6 +38,7 @@ type EngineServiceClient interface {
 	GetBBO(ctx context.Context, in *GetBBORequest, opts ...grpc.CallOption) (*GetBBOResponse, error)
 	GetStats(ctx context.Context, in *GetStatsRequest, opts ...grpc.CallOption) (*GetStatsResponse, error)
 	StreamEvents(ctx context.Context, in *StreamEventsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[EngineEvent], error)
+	CreateMarket(ctx context.Context, in *CreateMarketRequest, opts ...grpc.CallOption) (*CreateMarketResponse, error)
 }
 
 type engineServiceClient struct {
@@ -116,6 +118,16 @@ func (c *engineServiceClient) StreamEvents(ctx context.Context, in *StreamEvents
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EngineService_StreamEventsClient = grpc.ServerStreamingClient[EngineEvent]
 
+func (c *engineServiceClient) CreateMarket(ctx context.Context, in *CreateMarketRequest, opts ...grpc.CallOption) (*CreateMarketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CreateMarketResponse)
+	err := c.cc.Invoke(ctx, EngineService_CreateMarket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // EngineServiceServer is the server API for EngineService service.
 // All implementations must embed UnimplementedEngineServiceServer
 // for forward compatibility.
@@ -126,6 +138,7 @@ type EngineServiceServer interface {
 	GetBBO(context.Context, *GetBBORequest) (*GetBBOResponse, error)
 	GetStats(context.Context, *GetStatsRequest) (*GetStatsResponse, error)
 	StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[EngineEvent]) error
+	CreateMarket(context.Context, *CreateMarketRequest) (*CreateMarketResponse, error)
 	mustEmbedUnimplementedEngineServiceServer()
 }
 
@@ -153,6 +166,9 @@ func (UnimplementedEngineServiceServer) GetStats(context.Context, *GetStatsReque
 }
 func (UnimplementedEngineServiceServer) StreamEvents(*StreamEventsRequest, grpc.ServerStreamingServer[EngineEvent]) error {
 	return status.Error(codes.Unimplemented, "method StreamEvents not implemented")
+}
+func (UnimplementedEngineServiceServer) CreateMarket(context.Context, *CreateMarketRequest) (*CreateMarketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CreateMarket not implemented")
 }
 func (UnimplementedEngineServiceServer) mustEmbedUnimplementedEngineServiceServer() {}
 func (UnimplementedEngineServiceServer) testEmbeddedByValue()                       {}
@@ -276,6 +292,24 @@ func _EngineService_StreamEvents_Handler(srv interface{}, stream grpc.ServerStre
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type EngineService_StreamEventsServer = grpc.ServerStreamingServer[EngineEvent]
 
+func _EngineService_CreateMarket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateMarketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(EngineServiceServer).CreateMarket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: EngineService_CreateMarket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(EngineServiceServer).CreateMarket(ctx, req.(*CreateMarketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // EngineService_ServiceDesc is the grpc.ServiceDesc for EngineService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -303,6 +337,10 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "GetStats",
 			Handler:    _EngineService_GetStats_Handler,
 		},
+		{
+			MethodName: "CreateMarket",
+			Handler:    _EngineService_CreateMarket_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
@@ -311,5 +349,5 @@ var EngineService_ServiceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 	},
-	Metadata: "engine.proto",
+	Metadata: "proto/engine/engine.proto",
 }

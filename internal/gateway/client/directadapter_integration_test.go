@@ -64,7 +64,7 @@ func setupEngine(t *testing.T) (gatewayclient.EngineAdapter, *fakeOrderStore, *e
 	time.Sleep(20 * time.Millisecond)
 
 	store := newFakeOrderStore()
-	adapter := gatewayclient.NewDirectAdapter(multi, []clobconfig.MarketConfig{cfg}, store)
+	adapter := gatewayclient.NewDirectAdapter(multi, []clobconfig.MarketConfig{cfg}, store, nil)
 	return adapter, store, multi
 }
 

@@ -9,6 +9,19 @@ service EngineService {
   rpc GetBBO       (GetBBORequest)      returns (GetBBOResponse);
   rpc GetStats     (GetStatsRequest)    returns (GetStatsResponse);
   rpc StreamEvents (StreamEventsRequest) returns (stream EngineEvent);
+  rpc CreateMarket (CreateMarketRequest) returns (CreateMarketResponse);
+}
+
+message CreateMarketRequest {
+  string market_id          = 1;
+  bool   auction            = 2; // run an opening call-auction before continuous trading
+  int64  auction_preopen_ms = 3; // pre-open accumulation window before the auction clears
+  string reference_price    = 4; // auction clearing-price tiebreaker (decimal string)
+}
+
+message CreateMarketResponse {
+  bool   created = 1;
+  string state   = 2; // the market's engine state after creation
 }
 
 message PlaceOrderRequest {

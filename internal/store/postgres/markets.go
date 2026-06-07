@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -41,6 +42,7 @@ type MarketRow struct {
 	FeeTiers       []FeeTierRow `json:"feeTiers,omitempty"`
 	State          string       `json:"state"`
 	CreatedBy      string       `json:"createdBy"`
+	AuctionClearsAt *time.Time  `json:"auctionClearsAt,omitempty"` // set while an opening auction is pending
 }
 
 const marketCols = `market_id, COALESCE(base_asset,''), COALESCE(quote_asset,''),
@@ -48,7 +50,7 @@ const marketCols = `market_id, COALESCE(base_asset,''), COALESCE(quote_asset,'')
 	COALESCE(min_order_qty,0), COALESCE(max_order_qty,0), COALESCE(max_order_value,0),
 	COALESCE(max_depth,0), features, COALESCE(stp_mode,''),
 	maker_fee_rate, taker_fee_rate, COALESCE(fee_currency,''),
-	fee_model, COALESCE(fee_tiers,'[]'::jsonb), state, COALESCE(created_by,'')`
+	fee_model, COALESCE(fee_tiers,'[]'::jsonb), state, COALESCE(created_by,''), auction_clears_at`
 
 // scanMarket scans a row produced by a SELECT of marketCols.
 func scanMarket(row pgx.Row) (MarketRow, error) {
@@ -59,7 +61,7 @@ func scanMarket(row pgx.Row) (MarketRow, error) {
 		&m.MinOrderQty, &m.MaxOrderQty, &m.MaxOrderValue,
 		&m.MaxDepth, &m.Features, &m.STPMode,
 		&m.MakerFeeRate, &m.TakerFeeRate, &m.FeeCurrency,
-		&m.FeeModel, &tiersJSON, &m.State, &m.CreatedBy)
+		&m.FeeModel, &tiersJSON, &m.State, &m.CreatedBy, &m.AuctionClearsAt)
 	if err != nil {
 		return MarketRow{}, err
 	}
@@ -114,12 +116,12 @@ func InsertMarket(ctx context.Context, pool *pgxpool.Pool, m MarketRow) error {
 		 (market_id, base_asset, quote_asset, price_precision, qty_precision,
 		  tick_size, lot_size, min_order_qty, max_order_qty, max_order_value,
 		  max_depth, features, stp_mode, maker_fee_rate, taker_fee_rate,
-		  fee_currency, fee_model, fee_tiers, state, created_by)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+		  fee_currency, fee_model, fee_tiers, state, created_by, auction_clears_at)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)`,
 		m.MarketID, m.BaseAsset, m.QuoteAsset, m.PricePrecision, m.QtyPrecision,
 		m.TickSize, m.LotSize, m.MinOrderQty, m.MaxOrderQty, m.MaxOrderValue,
 		m.MaxDepth, m.Features, m.STPMode, m.MakerFeeRate, m.TakerFeeRate,
-		m.FeeCurrency, m.FeeModel, tiersJSON, m.State, m.CreatedBy,
+		m.FeeCurrency, m.FeeModel, tiersJSON, m.State, m.CreatedBy, m.AuctionClearsAt,
 	)
 	return err
 }

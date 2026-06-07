@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	clobconfig "github.com/thorlaidanegg/clob/config"
@@ -17,24 +19,57 @@ import (
 // EngineServer implements the gRPC EngineService.
 type EngineServer struct {
 	enginev1.UnimplementedEngineServiceServer
-	multi       *engine.MultiEngine
-	marketCfgs  map[string]clobconfig.MarketConfig // keyed by marketID string
-	logger      zerolog.Logger
+	multi   *engine.MultiEngine
+	creator *MarketCreator
+	logger  zerolog.Logger
+
+	mu         sync.RWMutex
+	marketCfgs map[string]clobconfig.MarketConfig // keyed by marketID string; guarded by mu
 }
 
 // NewEngineServer creates a gRPC EngineService server.
 // marketCfgs must include all markets the engine was created with so that price/qty
-// precision is known for correct Decimal parsing.
-func NewEngineServer(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig, logger zerolog.Logger) *EngineServer {
+// precision is known for correct Decimal parsing. creator registers markets created
+// at runtime (it may be nil to disable runtime market creation).
+func NewEngineServer(multi *engine.MultiEngine, cfgs []clobconfig.MarketConfig, creator *MarketCreator, logger zerolog.Logger) *EngineServer {
 	m := make(map[string]clobconfig.MarketConfig, len(cfgs))
 	for _, c := range cfgs {
 		m[string(c.MarketID)] = c
 	}
-	return &EngineServer{multi: multi, marketCfgs: m, logger: logger}
+	return &EngineServer{multi: multi, creator: creator, marketCfgs: m, logger: logger}
+}
+
+// marketCfg returns the cached config for a market under a read lock.
+func (s *EngineServer) marketCfg(id string) (clobconfig.MarketConfig, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	mc, ok := s.marketCfgs[id]
+	return mc, ok
+}
+
+// CreateMarket registers a market (already persisted in Postgres) with the live
+// engine and starts publishing its events, optionally running an opening auction.
+func (s *EngineServer) CreateMarket(_ context.Context, req *enginev1.CreateMarketRequest) (*enginev1.CreateMarketResponse, error) {
+	if s.creator == nil {
+		return nil, status.Error(codes.Unimplemented, "runtime market creation is not enabled")
+	}
+	cfg, state, err := s.creator.Create(CreateParams{
+		MarketID:       req.MarketId,
+		Auction:        req.Auction,
+		PreOpen:        time.Duration(req.AuctionPreopenMs) * time.Millisecond,
+		ReferencePrice: req.ReferencePrice,
+	})
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	s.mu.Lock()
+	s.marketCfgs[req.MarketId] = cfg
+	s.mu.Unlock()
+	return &enginev1.CreateMarketResponse{Created: state != "exists", State: state}, nil
 }
 
 func (s *EngineServer) PlaceOrder(ctx context.Context, req *enginev1.PlaceOrderRequest) (*enginev1.PlaceOrderResponse, error) {
-	mc, ok := s.marketCfgs[req.MarketId]
+	mc, ok := s.marketCfg(req.MarketId)
 	if !ok {
 		return nil, status.Errorf(codes.NotFound, "market not found: %s", req.MarketId)
 	}

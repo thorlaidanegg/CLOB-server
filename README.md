@@ -109,6 +109,10 @@ portfolio are therefore exactly-once in effect.
   (see [`doc/WALLET_MODEL.md`](doc/WALLET_MODEL.md)).
 - **Positions & PnL** — volume-weighted average entry, realised PnL on sells,
   unrealised PnL computed on read from the last trade price.
+- **Markets on demand** — create a market live from the API/UI (`POST /v1/markets`,
+  registered with the running engine without a restart) with server-side liquidity
+  seeding, and optionally run an **opening call-auction** that accumulates orders and
+  clears at a single equilibrium price before continuous trading begins.
 - **Leaderboard** by realised PnL (global + per-market), updated in real time.
 - **API-key auth** — SHA-256 hashed keys, Redis-cached (60s) with Postgres
   fallback, scopes and per-key rate limits.
@@ -334,6 +338,10 @@ fully bit-exact rebuild would use a command write-ahead log (see [Roadmap](#road
 > `ROLE=all` keeps the order book in memory with no Kafka. The book still recovers
 > from the durable Postgres checkpoint on restart, but without a durable event log
 > the last few un-checkpointed events can't be tail-folded — fine for dev, not prod.
+
+**Cheapest public deploy** (backend + UI + auto-HTTPS on one small VM, ~€4/mo or
+the Oracle free tier): see [`deploy/`](deploy/) — `ROLE=all` behind Caddy, which
+serves the SPA and proxies the API on a single domain. One `docker compose up -d`.
 
 ---
 

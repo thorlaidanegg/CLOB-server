@@ -64,6 +64,14 @@ func (f *FakeEngine) GetStats(_ context.Context, _ string) (client.MarketStats, 
 	return f.Stats, nil
 }
 
+func (f *FakeEngine) CreateMarket(_ context.Context, req client.CreateMarketRequest) (client.CreateMarketResponse, error) {
+	state := "open"
+	if req.Auction {
+		state = "auction"
+	}
+	return client.CreateMarketResponse{Created: true, State: state}, nil
+}
+
 // PlacedCount returns how many PlaceOrder calls were recorded.
 func (f *FakeEngine) PlacedCount() int {
 	f.mu.Lock()
